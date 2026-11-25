@@ -1,0 +1,13 @@
+{
+  "schema": "solovey.component.source-provenance/v1",
+  "component": "blockcheck",
+  "policy": "Only frozen ZapretGUI target data is adapted. No Windows executable, dynamic discovery, branding assets or separately licensed transfer-test data are used.",
+  "sourceOwners": ["github.com/MalenkiySolovey/solovey-component-blockcheck"],
+  "defaults": {
+    "repository": "https://git2.zapret.moe/zapretdiscordyoutube/zapretgui",
+    "tag": "22.0.0.0",
+    "commit": "4934082a4069e2e66e35668cf6a03cf4c8de16d2",
+    "license": "MIT",
+    "paths": ["src/blockcheck/quick_services.py", "src/blockcheck/data_lists.py"]
+  }
+}

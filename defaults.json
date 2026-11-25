@@ -1,0 +1,52 @@
+[
+  {"id":"youtube","name":"YouTube","description":"Website, short links, thumbnails and stable media redirector; no playback claim.","targets":[
+    {"name":"YouTube","host":"www.youtube.com","role":"website","probes":["https"]},
+    {"name":"YouTube Short","host":"youtu.be","role":"redirector","probes":["https"]},
+    {"name":"YT Images","host":"i.ytimg.com","role":"thumbnails","probes":["https"]},
+    {"name":"YT Media","host":"redirector.googlevideo.com","role":"media redirector","probes":["https"]},
+    {"name":"GoogleVideo","host":"googlevideo.com","role":"DNS only; not a playback endpoint","probes":["dns"]}
+  ]},
+  {"id":"discord","name":"Discord","description":"Website, public gateway and CDN; not an authenticated chat or voice session.","targets":[
+    {"name":"Discord","host":"discord.com","role":"website","probes":["https"]},
+    {"name":"Discord GW","host":"gateway.discord.gg","role":"gateway HTTPS endpoint","probes":["https"]},
+    {"name":"Discord CDN","host":"cdn.discordapp.com","role":"content CDN","probes":["https"]},
+    {"name":"Discord App","host":"discordapp.net","role":"DNS only","probes":["dns"]},
+    {"name":"Discord Media","host":"discord.media","role":"DNS only","probes":["dns"]}
+  ]},
+  {"id":"telegram","name":"Telegram","description":"Public site and Web entry point; not MTProto or an account session.","targets":[
+    {"name":"Telegram","host":"telegram.org","role":"website","probes":["https"]},
+    {"name":"Telegram Web","host":"web.telegram.org","role":"web entry point","probes":["https"]}
+  ]},
+  {"id":"instagram","name":"Instagram","targets":[{"name":"Instagram","host":"www.instagram.com","role":"website","probes":["https"]}]},
+  {"id":"facebook","name":"Facebook","targets":[{"name":"Facebook","host":"www.facebook.com","role":"website","probes":["https"]}]},
+  {"id":"x","name":"X (Twitter)","targets":[{"name":"Twitter/X","host":"x.com","role":"website","probes":["https"]}]},
+  {"id":"whatsapp","name":"WhatsApp","targets":[{"name":"WhatsApp Web","host":"web.whatsapp.com","role":"web entry point","probes":["https"]}]},
+  {"id":"spotify","name":"Spotify","targets":[{"name":"Spotify","host":"www.spotify.com","role":"website","probes":["https"]}]},
+  {"id":"chatgpt","name":"ChatGPT","targets":[{"name":"ChatGPT","host":"chatgpt.com","role":"website","probes":["https"]}]},
+  {"id":"rutracker","name":"RuTracker","targets":[{"name":"RuTracker","host":"rutracker.org","role":"website","probes":["https"]}]},
+  {"id":"twitch","name":"Twitch","targets":[{"name":"Twitch","host":"www.twitch.tv","role":"website","probes":["https"]}]},
+  {"id":"linkedin","name":"LinkedIn","targets":[{"name":"LinkedIn","host":"www.linkedin.com","role":"website","probes":["https"]}]},
+  {"id":"web-controls","name":"Web controls","targets":[
+    {"name":"Google","host":"www.google.com","role":"HTTPS control","probes":["https"]},
+    {"name":"Cloudflare","host":"www.cloudflare.com","role":"HTTPS control","probes":["https"]}
+  ]},
+  {"id":"dns-extras","name":"Extra DNS names","targets":[
+    {"name":"Speedtest","host":"www.speedtest.net","role":"DNS only","probes":["dns"]},
+    {"name":"SoundCloud","host":"soundcloud.com","role":"DNS only","probes":["dns"]},
+    {"name":"GitHub","host":"github.com","role":"DNS only","probes":["dns"]},
+    {"name":"Rutor","host":"rutor.info","role":"DNS only","probes":["dns"]},
+    {"name":"Roblox","host":"roblox.com","role":"DNS only","probes":["dns"]},
+    {"name":"Meduza","host":"meduza.io","role":"DNS only","probes":["dns"]}
+  ]},
+  {"id":"stun-controls","name":"STUN controls","description":"Endpoint data only unless the selected path supplies a qualified STUN capability.","targets":[
+    {"name":"Google STUN","host":"stun.l.google.com","role":"general","port":19302,"probes":["stun"]},
+    {"name":"CF STUN","host":"stun.cloudflare.com","role":"general","port":3478,"probes":["stun"]},
+    {"name":"Twilio STUN","host":"global.stun.twilio.com","role":"general","port":3478,"probes":["stun"]},
+    {"name":"Telegram STUN","host":"stun.telegram.org","role":"telegram","port":3478,"probes":["stun"]},
+    {"name":"Telegram VoIP STUN","host":"stun.voip.telegram.org","role":"telegram","port":3478,"probes":["stun"]}
+  ]},
+  {"id":"icmp-controls","name":"ICMP controls","description":"Endpoint data only unless the selected path supplies a qualified ICMP capability.","targets":[
+    {"name":"CF DNS","host":"1.1.1.1","role":"ICMP control","probes":["icmp"]},
+    {"name":"Google DNS","host":"8.8.8.8","role":"ICMP control","probes":["icmp"]}
+  ]}
+]
