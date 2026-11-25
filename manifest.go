@@ -10,6 +10,7 @@ import (
 
 const ID = "blockcheck"
 const CatalogSettingKey = "blockcheckGroupsV1"
+const HistorySettingKey = "blockcheckHistoryV1"
 
 //go:embed component.json
 var descriptor []byte

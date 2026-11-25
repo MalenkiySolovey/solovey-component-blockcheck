@@ -10,7 +10,7 @@ import (
 
 func TestTemplateCatalogAndManifest(t *testing.T) {
 	m := Manifest()
-	if m.ID != ID || m.DefaultEnabled || !slices.Equal(m.Database.Settings, []string{CatalogSettingKey}) {
+	if m.ID != ID || m.DefaultEnabled || !slices.Equal(m.Database.Settings, []string{CatalogSettingKey, HistorySettingKey}) {
 		t.Fatalf("unexpected manifest: %+v", m)
 	}
 	c, err := DecodeCatalog(nil)

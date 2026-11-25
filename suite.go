@@ -45,12 +45,15 @@ type GroupProgress struct {
 }
 
 type SuiteEvent struct {
-	Kind     string           `json:"kind"`
-	Job      operationref.Job `json:"job"`
-	Progress SuiteProgress    `json:"progress"`
-	Group    *GroupProgress   `json:"group,omitempty"`
-	Rows     []Result         `json:"rows,omitempty"`
-	Findings []GroupFinding   `json:"findings,omitempty"`
+	Kind         string           `json:"kind"`
+	Job          operationref.Job `json:"job"`
+	Progress     SuiteProgress    `json:"progress"`
+	Group        *GroupProgress   `json:"group,omitempty"`
+	Rows         []Result         `json:"rows,omitempty"`
+	Findings     []GroupFinding   `json:"findings,omitempty"`
+	StartedAt    *time.Time       `json:"startedAt,omitempty"`
+	FinishedAt   *time.Time       `json:"finishedAt,omitempty"`
+	HistorySaved *bool            `json:"historySaved,omitempty"`
 	// Group report metadata. Probe results arrive once, in their batch events.
 	Report *Report `json:"report,omitempty"`
 }
@@ -168,7 +171,8 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 		return emit(event)
 	}
 	pending := operationref.OutcomePending
-	if err := publish(SuiteEvent{Kind: "started"}, "RUNNING", pending, ""); err != nil {
+	started := time.Now().UTC()
+	if err := publish(SuiteEvent{Kind: "started", StartedAt: &started}, "RUNNING", pending, ""); err != nil {
 		return err
 	}
 	var path Path
@@ -243,7 +247,8 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 	if progress.GroupsDone != progress.TotalGroups {
 		phase, outcome, reason = suiteOutcome(runCtx, pathErr)
 	}
-	return publish(SuiteEvent{Kind: "finished"}, phase, outcome, reason)
+	finished := time.Now().UTC()
+	return publish(SuiteEvent{Kind: "finished", StartedAt: &started, FinishedAt: &finished}, phase, outcome, reason)
 }
 
 func checkCurrent(ctx context.Context, path Path) error {

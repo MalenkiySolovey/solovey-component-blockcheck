@@ -161,7 +161,8 @@ type Result struct {
 	Reason                 string           `json:"reason,omitempty"`
 	ElapsedMS              int64            `json:"elapsedMs"`
 	AddressFamily          Family           `json:"addressFamily,omitempty"`
-	address                netip.Addr       // pairing key; never serialized
+	AttemptedAddress       string           `json:"attemptedAddress,omitempty"`
+	address                netip.Addr       // binary pairing key for TLS observations
 	DNSContext             string           `json:"dnsContext,omitempty"`
 	DNSTransport           string           `json:"dnsTransport,omitempty"`
 	DNSConfiguredTransport string           `json:"dnsConfiguredTransport,omitempty"`
@@ -468,6 +469,7 @@ func (r Report) Redacted() Report {
 	for i := range r.Results {
 		r.Results[i].Socket = nil
 		r.Results[i].DNSSocket = nil
+		r.Results[i].AttemptedAddress = ""
 	}
 	return r
 }

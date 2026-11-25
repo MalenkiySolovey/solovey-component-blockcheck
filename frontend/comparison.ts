@@ -1,7 +1,7 @@
 import type { Report, Row } from './api'
 
 const observed = new Set(['ok', 'dns_response', 'http_response', 'resolution_failed', 'timeout', 'connection_refused',
-  'connection_failed', 'connection_reset', 'stream_closed', 'tls_failed', 'certificate_invalid', 'protocol_error'])
+  'connection_failed', 'connection_reset', 'stream_closed', 'tls_failed', 'quic_failed', 'certificate_invalid', 'protocol_error'])
 const dnsProbes = new Set(['dns', 'dns-udp', 'dns-tcp', 'dot', 'doh', 'doq', 'doh3'])
 
 function sameProbe(a: Row, b: Row): boolean {
@@ -34,4 +34,11 @@ export function dnsDifference(a: Row, b: Row): DNSDifference | undefined {
   if (other.dnsRcode === 3) return 'name_error'
   if (other.dnsRcode !== 0) return 'error_response'
   if (!other.answerCount) return 'empty_answer'
+}
+
+// Correlate observations already made on this path. A verified certificate
+// authenticates one attempted address, not the entire set or the resolver.
+export function authenticatesDNSSet(reply: Row, report: Report): boolean {
+  return reply.status === 'dns_response' && !!reply.answerDigest && report.results.some(row => row.target === reply.target &&
+    row.targetRef === reply.targetRef && row.answerDigest === reply.answerDigest && row.tlsVerified === true)
 }
