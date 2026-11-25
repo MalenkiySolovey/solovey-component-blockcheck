@@ -63,7 +63,10 @@ can see stages and probes grouped by the admitted address actually tried, not
 every DNS answer or every server behind a name. The time to HTTP response start
 is separate from full probe and transfer duration. HTTP/1 observes the first
 response data; HTTP/2 and HTTP/3 use their transport's first-response event.
-If no event is observed the timing is absent. Raw responses, credentials and
+The body timing is separate and the longest interval is only reported after
+at least two positive body reads. A pause is evidence about this bounded
+sample, not evidence of bandwidth limits or filtering. Unmeasured times
+remain absent even when measured times would round to zero. Raw responses, credentials and
 packet content are never retained. Exports remove attempted addresses, path
 context and egress details.
 

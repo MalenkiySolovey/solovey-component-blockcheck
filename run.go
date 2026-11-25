@@ -177,7 +177,8 @@ type Result struct {
 	HTTPProtocol           string           `json:"httpProtocol,omitempty"`
 	HTTPResponseStartMS    *int64           `json:"httpResponseStartMs,omitempty"`
 	BodyBytes              int64            `json:"bodyBytes,omitempty"`
-	BodyReadMS             int64            `json:"bodyReadMs,omitempty"`
+	BodyReadMS             *int64           `json:"bodyReadMs,omitempty"`
+	BodyMaxGapMS           *int64           `json:"bodyMaxGapMs,omitempty"`
 	BodyExpected           int64            `json:"bodyExpected,omitempty"`
 	Socket                 *SocketEvidence  `json:"socket,omitempty"`
 	Proof                  *health.Evidence `json:"evidence,omitempty"`

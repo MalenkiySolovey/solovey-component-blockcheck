@@ -476,8 +476,10 @@ function rowFacts(row: Row, includeAddress = true) {
     row.tlsProfile === 'chrome-133' && t('blockcheck.tlsProfile.chrome-133'), row.httpProtocol,
     row.httpResponseStartMs !== undefined && t('blockcheck.httpResponseStart', { duration: duration(row.httpResponseStartMs) }),
     row.stage === 'transfer' && t('blockcheck.transferSample', {
-      bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'), ms: row.bodyReadMs ?? 0,
-    }), row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
+      bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'),
+    }), row.bodyReadMs !== undefined && t('blockcheck.transferReadTime', { duration: duration(row.bodyReadMs) }),
+    row.bodyMaxGapMs !== undefined && t('blockcheck.transferMaxGap', { duration: duration(row.bodyMaxGapMs) }),
+    row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
 }
 const targetLabel = (index: number) => {
   const target = visibleEntry.value?.targets[index]

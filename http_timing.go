@@ -42,3 +42,31 @@ func (r responseStartReader) Read(p []byte) (int, error) {
 	}
 	return n, err
 }
+
+// Only intervals between successful body reads are measured. A final EOF or
+// timeout without bytes does not count and retains its own failure evidence.
+type transferTiming struct {
+	io.Reader
+	last time.Time
+	max  *int64
+}
+
+func (r *transferTiming) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n > 0 {
+		r.observe(time.Now())
+	}
+	return n, err
+}
+
+func (r *transferTiming) observe(now time.Time) {
+	if !r.last.IsZero() {
+		gap := now.Sub(r.last).Milliseconds()
+		if r.max == nil {
+			r.max = &gap
+		} else if gap > *r.max {
+			*r.max = gap
+		}
+	}
+	r.last = now
+}
