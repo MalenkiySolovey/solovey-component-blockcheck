@@ -123,6 +123,12 @@ func interpretProbe(row Result) *Finding {
 		if row.Status != HTTPResponse {
 			return fact("transfer_protocol_error", "service_or_proxy", "path_or_service")
 		}
+		// The frozen reference uses 2.5 s as a threshold for investigating
+		// pauses. Here the evidence is one in-body interval, not repeated
+		// delays before responses or a diagnosis of filtering.
+		if row.BodyMaxGapMS != nil && *row.BodyMaxGapMS >= 2500 {
+			return fact("transfer_pause_observed", "service_or_proxy", "path_or_service", "client_scheduling")
+		}
 	}
 	return nil
 }

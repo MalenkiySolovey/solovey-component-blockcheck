@@ -301,9 +301,11 @@ func readTransfer(row *Result, response *http.Response, raw *io.LimitedReader) {
 	}
 	// Bound peer-controlled framing too (e.g. chunk extensions).
 	raw.N = maxTransferBytes + maxTransferFramingBytes
+	timing := transferTiming{Reader: response.Body}
 	started := time.Now()
-	n, err := io.CopyN(io.Discard, response.Body, maxTransferBytes)
-	row.BodyBytes, row.BodyReadMS = n, time.Since(started).Milliseconds()
+	n, err := io.CopyN(io.Discard, &timing, maxTransferBytes)
+	elapsed := time.Since(started).Milliseconds()
+	row.BodyBytes, row.BodyReadMS, row.BodyMaxGapMS = n, &elapsed, timing.max
 	switch {
 	case err == nil:
 		if row.BodyExpected != n {
