@@ -91,20 +91,6 @@ export async function openTransfer(file: File): Promise<Transfer> {
   return data
 }
 
-const comparisonStatuses = new Set(['ok', 'dns_response', 'http_response', 'resolution_failed', 'timeout', 'connection_refused',
-  'connection_failed', 'connection_reset', 'stream_closed', 'tls_failed', 'certificate_invalid', 'protocol_error'])
-
-export function comparable(a: Report, b: Report): boolean {
-  if (!a.pathEvidence || !b.pathEvidence || a.pathEvidence.host.id !== b.pathEvidence.host.id || a.groupId !== b.groupId ||
-      a.groupRevision !== b.groupRevision || a.family !== b.family || !a.results.length || a.results.length !== b.results.length ||
-      Math.abs(Date.parse(a.startedAt) - Date.parse(b.startedAt)) > 15 * 60 * 1000) return false
-  return a.results.every((row, index) => {
-    const other = b.results[index]
-    return row.target === other.target && row.targetRef === other.targetRef && row.probe === other.probe &&
-      comparisonStatuses.has(row.status) && comparisonStatuses.has(other.status)
-  })
-}
-
 export function redacted(report: Report): Report {
   const { mode } = report.path
   const evidence = report.pathEvidence
