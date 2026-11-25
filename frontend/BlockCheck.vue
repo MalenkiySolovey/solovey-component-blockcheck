@@ -123,7 +123,7 @@
       </ul>
       <v-table class="probe-table" density="compact">
         <thead><tr><th scope="col">{{ t('blockcheck.target') }}</th><th scope="col">{{ t('blockcheck.result') }}</th>
-          <th v-if="comparison" scope="col">{{ t(`blockcheck.${comparison.report.path.mode}`) }}</th><th scope="col">{{ t('blockcheck.observed') }}</th></tr></thead>
+          <th v-if="comparison" scope="col">{{ pathTitle(comparison.report) }}</th><th scope="col">{{ t('blockcheck.observed') }}</th></tr></thead>
         <tbody>
           <tr v-for="(row, index) in visibleReport.results" :key="cellKey(row.target, row.probe)">
             <th scope="row" class="text-start">{{ targetLabel(row.target) }} · {{ row.probe.toUpperCase() }}</th>
@@ -133,7 +133,12 @@
                 {{ findingDetails(row.interpretation) }}
               </details>
             </td>
-            <td v-if="comparison">{{ observation(comparison.report.results[index]) }}<div class="text-caption text-medium-emphasis">{{ comparison.report.results[index].elapsedMs }} ms</div></td>
+            <td v-if="comparison">{{ observation(comparison.report.results[index]) }}<div class="text-caption text-medium-emphasis">{{ comparison.report.results[index].elapsedMs }} ms · {{ rowFacts(comparison.report.results[index]) }}</div>
+              <details v-if="dnsDifferences[index]" class="mt-1 text-caption">
+                <summary>{{ t(`blockcheck.dnsDifference.${dnsDifferences[index]}`) }}</summary>
+                {{ t('blockcheck.dnsDifferenceEvidence') }}
+              </details>
+            </td>
             <td class="text-caption">{{ rowFacts(row) }}</td>
           </tr>
         </tbody>
@@ -193,7 +198,8 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { cancelSuite, comparable, load, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type Mode, type Options, type Report, type Row, type SuiteEvent, type Target } from './api'
+import { cancelSuite, load, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type Mode, type Options, type Report, type Row, type SuiteEvent, type Target } from './api'
+import { comparable, dnsDifference } from './comparison'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -259,10 +265,16 @@ const progressTitle = computed(() => stopping.value ? t('blockcheck.stopping') :
 const groupHistory = computed(() => history.value.get(selected.value) ?? [])
 const lastReport = (id: string) => history.value.get(id)?.[0]?.report
 const visibleReport = computed(() => groupHistory.value[runIndex.value]?.report)
-const runTitle = (report: Report) => `${new Date(report.startedAt).toLocaleTimeString()} · ${t(`blockcheck.${report.path.mode}`)}`
+const pathTitle = (report: Report) => [t(`blockcheck.${report.path.mode}`), report.path.ref,
+  report.path.resolver && t('blockcheck.comparisonResolver', { resolver: report.path.resolver })].filter(Boolean).join(' · ')
+const runTitle = (report: Report) => `${new Date(report.startedAt).toLocaleTimeString()} · ${pathTitle(report)}`
 const runChoices = computed(() => groupHistory.value.map(({report}, value) => ({ value, title: runTitle(report) })))
 const comparisonChoices = computed(() => runChoices.value.filter(({value}) => value !== runIndex.value && visibleReport.value && comparable(visibleReport.value, groupHistory.value[value].report)))
 const comparison = computed(() => comparisonChoices.value.some(item => item.value === compareIndex.value) ? groupHistory.value[compareIndex.value!] : undefined)
+const dnsDifferences = computed(() => {
+  const other = comparison.value?.report
+  return other && visibleReport.value ? visibleReport.value.results.map((row, index) => dnsDifference(row, other.results[index])) : []
+})
 
 function groupSummary(id: string) {
   const active = live.value?.group

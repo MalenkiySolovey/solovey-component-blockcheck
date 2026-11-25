@@ -33,6 +33,12 @@ the frozen ZapretGUI diagnostics, the report distinguishes resolution,
 connection, TLS, certificate, HTTP and transfer stages. A TLS version contrast
 requires the same admitted address and does not establish a filtering cause.
 
+The report view can compare matching probes from recent runs on the same Host
+without hiding the entire comparison because a different probe was unavailable.
+For observed DNS replies it distinguishes NXDOMAIN, empty replies, other DNS
+errors, addresses rejected by the Host, and different admitted address sets.
+No resolver is presumed authoritative and differences do not prove tampering.
+
 No target address, raw response, credential or packet content is put in the run
 result. For exported observations, the HTTP adapter uses `Report.Redacted` to
 also remove path context and egress details. Group exports deliberately contain
