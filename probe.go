@@ -157,11 +157,14 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	}
 	row.Socket = socketObservation(evidence)
 	if row.Probe == TCP {
-		if evidence.ProxyAccepted {
+		switch {
+		case evidence.ProxyTransportOnly:
+			row.Status, row.Reason = Unobservable, "proxy_endpoint_tcp_not_observed"
+		case evidence.ProxyAccepted:
 			row.Status, row.Reason = Unobservable, "proxy_connect_not_endpoint_proof"
-			return
+		default:
+			row.Status = OK
 		}
-		row.Status = OK
 		return
 	}
 	deadline, _ := ctx.Deadline()

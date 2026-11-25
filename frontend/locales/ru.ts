@@ -52,6 +52,7 @@ export default { blockcheck: {
     outbound_not_available: 'Выбранного исходящего нет в работающем Core.', core_generation_changed: 'Активный Core изменился во время запуска.',
     dns_transport_not_observed: 'Core не сообщил, какой транспорт использовался в сети.',
     proxy_connect_not_endpoint_proof: 'Прокси принял CONNECT. Рукопожатие TCP с конечным узлом не наблюдалось.',
+    proxy_endpoint_tcp_not_observed: 'Открыт поток через прокси. Рукопожатие TCP с конечным узлом не наблюдалось.',
     dns_transport_not_available: 'Этот транспорт недоступен на выбранном DNS-сервере.', probe_not_available_on_path: 'На выбранном пути нет такой проверки.',
     target_policy_rejected: 'Адрес назначения не прошёл проверку политики хоста.', dns_or_literal_address_not_public: 'Ответ содержит непубличный или запрещённый адрес.',
     blockcheck_stale_catalog: 'Каталог изменился. Обновите его перед повтором.', blockcheck_busy: 'Другой запуск BlockCheck уже активен.',
