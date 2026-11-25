@@ -11,6 +11,7 @@ export default { blockcheck: {
   differentContext: 'Not compared: path, Core generation, targets or check scope changed, or a run did not finish.',
   pathNotConfirmed: 'Same settings; the actual path was not confirmed for every probe.',
   changedGroups: 'Group availability changed: {count}', changedProbes: 'Probe availability changed: {count}',
+  changedGroupDetails: 'Changes since the previous run', groupTransition: '{before} → {after}',
   targetResults: 'Target results', moreTargets: 'Other targets: {count}', protocolResults: 'Protocol results',
   connectionStages: 'Connection stages', compactComparison: '{path}: {result} · {duration}',
   protocol: { dns: 'DNS', tcp: 'TCP', tls: 'TLS', http: 'HTTP/S', chrome: 'Chrome TLS', quic: 'QUIC / HTTP/3', transfer: 'Transfer', stun: 'Voice (STUN)', icmp: 'ICMP' },
