@@ -20,12 +20,18 @@ continues after the request ends. The compatibility JSON endpoint still has a
 the number of selected definitions. The serialized catalog and imports retain
 a size budget independent of the number of active probes.
 
-TCP/TLS test port 443; HTTP/HTTPS send `HEAD /` to port 80/443 with no redirects
-or body reads. TLS uses normal certificate verification. DNS probing is delegated
-to the selected path, with no fallback. Named targets reach a policy-checked,
+Quick runs use the configured probes. On a Deep run, HTTP/HTTPS and TLS probes
+add applicable transfer and exact TLS 1.2/1.3 probes without editing the group.
+HTTP/HTTPS checks use `HEAD /`. Transfer checks use `GET /` and read up to 64 KiB
+of body without following redirects or retaining response data. TLS always uses
+normal certificate verification. DNS probing is delegated to the selected path,
+with no fallback. Named targets reach a policy-checked,
 pinned address; the full answer is rejected if any address is disallowed.
 The host must qualify each mode separately. HTTP responses and DNS status codes
-are observations, not proof of censorship or full service availability.
+are observations, not proof of censorship or full service availability. As in
+the frozen ZapretGUI diagnostics, the report distinguishes resolution,
+connection, TLS, certificate, HTTP and transfer stages. A TLS version contrast
+requires the same admitted address and does not establish a filtering cause.
 
 No target address, raw response, credential or packet content is put in the run
 result. For exported observations, the HTTP adapter uses `Report.Redacted` to

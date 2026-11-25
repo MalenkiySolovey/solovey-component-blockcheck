@@ -27,7 +27,8 @@ var (
 
 type SuiteRequest struct {
 	RunRequest
-	All bool `json:"all,omitempty"`
+	All   bool  `json:"all,omitempty"`
+	Depth Depth `json:"depth,omitempty"`
 }
 
 type SuiteProgress struct {
@@ -49,6 +50,7 @@ type SuiteEvent struct {
 	Progress SuiteProgress    `json:"progress"`
 	Group    *GroupProgress   `json:"group,omitempty"`
 	Rows     []Result         `json:"rows,omitempty"`
+	Findings []GroupFinding   `json:"findings,omitempty"`
 	// Group report metadata. Probe results arrive once, in their batch events.
 	Report *Report `json:"report,omitempty"`
 }
@@ -66,7 +68,7 @@ func prepareSuite(catalog Catalog, req SuiteRequest) ([]plannedGroup, SuiteProgr
 	if req.CatalogRevision != catalog.Revision() {
 		return nil, progress, 0, ErrStaleCatalog
 	}
-	if !validRunPath(req.Path, req.Family) || req.All && (req.GroupID != "" || len(req.Cells) != 0) || !req.All && req.GroupID == "" {
+	if !validRunPath(req.Path, req.Family) || !req.Depth.valid() || req.All && (req.GroupID != "" || len(req.Cells) != 0) || !req.All && req.GroupID == "" {
 		return nil, progress, 0, ErrInvalidRun
 	}
 	groups := catalog.Groups
@@ -87,6 +89,9 @@ func prepareSuite(catalog Catalog, req SuiteRequest) ([]plannedGroup, SuiteProgr
 		cells, err := requestedCells(group, groupReq)
 		if err != nil {
 			return nil, progress, 0, err
+		}
+		if req.Depth == Deep {
+			cells = deepCells(cells)
 		}
 		group.Targets = slices.Clone(group.Targets)
 		for i := range group.Targets {
@@ -180,6 +185,7 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 			}
 			group := GroupProgress{ID: entry.group.ID, Total: len(entry.cells)}
 			groupRef := operationref.NewReference(ID, entry.group.ID, newID("probe-"))
+			var pairs tlsPairs
 			report := Report{Path: req.Path, Family: req.Family, GroupID: entry.group.ID, GroupRevision: entry.group.Revision(),
 				Evidence: &path.Evidence, StartedAt: time.Now().UTC()}
 			if err := publish(SuiteEvent{Kind: "progress", Group: &group}, "RUNNING", pending, ""); err != nil {
@@ -212,7 +218,7 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 				}
 				group.Completed += len(rows)
 				progress.ProbesDone += len(rows)
-				if err := publish(SuiteEvent{Kind: "progress", Group: &group, Rows: rows}, "RUNNING", pending, ""); err != nil {
+				if err := publish(SuiteEvent{Kind: "progress", Group: &group, Rows: rows, Findings: pairs.observe(rows)}, "RUNNING", pending, ""); err != nil {
 					return err
 				}
 			}
