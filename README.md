@@ -27,6 +27,12 @@ of body without following redirects or retaining response data. TLS always uses
 normal certificate verification. DNS probing is delegated to the selected path,
 with no fallback. Named targets reach a policy-checked,
 pinned address; the full answer is rejected if any address is disallowed.
+Where the selected path supplies an admitted connected UDP socket, `quic` checks
+an authenticated TLS 1.3 handshake with HTTP/3 ALPN. `http3` also requests
+`HEAD /` on that exact session. Neither probe dials another address, falls back
+to TCP, or follows redirects. An open UDP socket alone is not evidence of a
+response. An incomplete QUIC handshake can also mean the endpoint does not
+support HTTP/3, not just an interruption on the network.
 The host must qualify each mode separately. HTTP responses and DNS status codes
 are observations, not proof of censorship or full service availability. As in
 the frozen ZapretGUI diagnostics, the report distinguishes resolution,

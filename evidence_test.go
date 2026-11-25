@@ -20,7 +20,8 @@ import (
 	"time"
 )
 
-func TestExactTLSVersionWithVerification(t *testing.T) {
+func fixtureTLSCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +39,11 @@ func TestExactTLSVersionWithVerification(t *testing.T) {
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(leaf)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, roots
+}
+
+func TestExactTLSVersionWithVerification(t *testing.T) {
+	cert, roots := fixtureTLSCertificate(t)
 	for _, tc := range []struct {
 		name  string
 		probe Probe
@@ -58,7 +64,6 @@ func TestExactTLSVersionWithVerification(t *testing.T) {
 			client, peer := net.Pipe()
 			defer client.Close()
 			defer peer.Close()
-			cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
 			server := tls.Server(peer, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, MaxVersion: tc.max})
 			done := make(chan error, 1)
 			go func() { done <- server.HandshakeContext(ctx) }()

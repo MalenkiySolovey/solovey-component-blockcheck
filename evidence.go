@@ -46,6 +46,8 @@ type Stage string
 const (
 	StageDNS         Stage = "dns"
 	StageTCP         Stage = "tcp"
+	StageUDP         Stage = "udp"
+	StageQUIC        Stage = "quic"
 	StageTLS         Stage = "tls"
 	StageCertificate Stage = "certificate"
 	StageHTTP        Stage = "http"
@@ -91,6 +93,12 @@ func interpretProbe(row Result) *Finding {
 				return fact("tcp_refused", "listener_or_firewall", "intermediary")
 			}
 			return fact("tcp_not_established", "path_or_service", "listener_or_firewall", "intermediary")
+		}
+	case StageUDP:
+		return fact("udp_socket_unavailable", "listener_or_firewall", "path_or_service")
+	case StageQUIC:
+		if row.Status != OK {
+			return fact("quic_handshake_incomplete", "quic_support_policy", "path_or_service", "intermediary")
 		}
 	case StageTLS:
 		if row.Status != OK {
