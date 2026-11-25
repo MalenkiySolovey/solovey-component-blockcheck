@@ -130,7 +130,7 @@
       <thead><tr><th scope="col">{{ t('blockcheck.target') }}</th><th scope="col">{{ t('blockcheck.role') }}</th><th scope="col">{{ t('blockcheck.probes') }}</th></tr></thead>
       <tbody>
         <tr v-for="(target, index) in group.targets" :key="index">
-          <th scope="row" class="text-start"><div>{{ target.name }}</div><div class="text-caption text-medium-emphasis">{{ target.host }}</div></th>
+          <th scope="row" class="text-start"><div>{{ target.name }}</div><div class="text-caption text-medium-emphasis">{{ targetEndpoint(target) }}</div></th>
           <td>{{ target.role }}</td>
           <td><div class="d-flex flex-wrap ga-2 py-1">
             <v-checkbox-btn v-for="probe in target.probes" :key="probe" :label="probeLabel(probe)" class="probe-choice" density="compact"
@@ -172,8 +172,9 @@
       <h3 class="text-subtitle-2 mt-4 mb-2">{{ t('blockcheck.targetResults') }}</h3>
       <details v-for="target in visibleTargets" :key="visibleReport.job.jobId + ':' + target.index" class="target-result" :open="target.index === 0 || target.state === 'unavailable' || target.state === 'limited'">
         <summary>
-          <span class="font-weight-medium">{{ target.meta.host || target.meta.name }}</span>
-          <span v-if="target.meta.role" class="text-caption text-medium-emphasis">{{ target.meta.role }}</span>
+          <span class="font-weight-medium">{{ target.meta.name }}</span>
+          <span v-if="target.endpoint && target.endpoint !== target.meta.name" class="text-caption text-medium-emphasis">{{ target.endpoint }}</span>
+          <span v-if="target.meta.role && target.meta.role !== target.meta.name" class="text-caption text-medium-emphasis">{{ target.meta.role }}</span>
           <span class="result-state text-caption" :data-availability="target.state">{{ availability(target.state) }}</span>
         </summary>
         <section v-for="attempt in target.addresses" :key="attempt.address ?? ''" class="attempt-scope mb-3">
@@ -273,7 +274,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
 import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
-import { addressResults, availabilityColor, availabilityStates, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults, type Availability } from './serviceResults'
+import { addressResults, availabilityColor, availabilityStates, cardTargetLabel, probeAvailability, protocolResults, reportContext, serviceAvailability, targetEndpoint, targetResults, type Availability } from './serviceResults'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -383,14 +384,14 @@ const serviceCards = computed(() => new Map((catalog.value?.groups ?? []).flatMa
   const targets = targetResults(meta.length, rows)
   const priority: Record<Availability, number> = { unavailable: 0, limited: 1, unconfirmed: 2, available: 3 }
   const preview = targets.slice().sort((a, b) => priority[a.state] - priority[b.state]).slice(0, 3).map(target => ({
-    ...target, label: meta[target.index].role || meta[target.index].name,
+    ...target, label: cardTargetLabel(meta[target.index]),
   }))
   return [[row.id, { preview, protocols: protocolResults(rows), hidden: targets.length - preview.length }] as const]
 })))
 const visibleTargets = computed(() => {
   const entry = visibleEntry.value
   return entry ? targetResults(entry.targets.length, entry.report.results).map(target => ({
-    ...target, meta: entry.targets[target.index], addresses: addressResults(target.rows),
+    ...target, meta: entry.targets[target.index], endpoint: targetEndpoint(entry.targets[target.index]), addresses: addressResults(target.rows),
   })) : []
 })
 const aggregate = computed(() => {
@@ -475,7 +476,10 @@ function rowFacts(row: Row, includeAddress = true) {
       bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'), ms: row.bodyReadMs ?? 0,
     }), row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
 }
-const targetLabel = (index: number) => visibleEntry.value?.targets[index]?.name ?? `#${index + 1}`
+const targetLabel = (index: number) => {
+  const target = visibleEntry.value?.targets[index]
+  return target ? [target.name, target.port && targetEndpoint(target)].filter(Boolean).join(' · ') : `#${index + 1}`
+}
 const findingText = (finding: Finding) => t(`blockcheck.finding.${finding.code}`)
 function findingDetails(finding: Finding) {
   const alternatives = finding.alternatives?.map(code => t(`blockcheck.alternative.${code}`)).join('; ')
@@ -622,7 +626,7 @@ async function start(groupId?: string) {
   const request = new AbortController()
   runController = request
   const groups = groupId ? catalog.value.groups.filter(row => row.id === groupId) : catalog.value.groups.filter(row => !row.disabled)
-  const targets = new Map(groups.map(row => [row.id, row.targets.map(({ name, host, role }) => ({ name, host, role }))]))
+  const targets = new Map(groups.map(row => [row.id, row.targets.map(({ name, host, role, port }) => ({ name, host, role, port }))]))
   const results = new Map<string, HistoryEntry | undefined>(groups.map(row => [row.id, undefined]))
   const path = { mode: mode.value, ref: pathRef.value, resolver: mode.value === 'OUTBOUND' ? resolver.value ?? undefined : undefined }
   const selectedFamily = family.value, selectedDepth = depth.value

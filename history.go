@@ -18,6 +18,7 @@ type HistoryTarget struct {
 	Name string `json:"name"`
 	Host string `json:"host"`
 	Role string `json:"role"`
+	Port uint16 `json:"port,omitempty"`
 }
 
 type HistoryGroup struct {
@@ -176,7 +177,7 @@ func (c *HistoryCapture) finishGroup(event SuiteEvent) {
 	// arrival. Discard the entire body if it cannot be retained as one unit.
 	if exists && !c.oversize && c.group == event.Group.ID {
 		for _, target := range group.Targets {
-			item.Targets = append(item.Targets, HistoryTarget{target.Name, target.Host, target.Role})
+			item.Targets = append(item.Targets, HistoryTarget{Name: target.Name, Host: target.Host, Role: target.Role, Port: target.Port})
 		}
 		item.Report.Findings = c.findings
 		meta, err := json.Marshal(item)

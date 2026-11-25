@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Report, Row } from './api'
-import { addressResults, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults } from './serviceResults'
+import { addressResults, cardTargetLabel, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetEndpoint, targetResults } from './serviceResults'
 
 const pass: Row = { target: 0, targetRef: 'fixture', probe: 'https', stage: 'http', status: 'http_response', httpStatus: 204,
   tlsVersion: 'TLS 1.3', tlsVerified: true, dnsContext: 'core-policy', answerCount: 1, elapsedMs: 2 }
@@ -39,6 +39,15 @@ describe('service availability', () => {
 })
 
 describe('protocol observations', () => {
+  it('distinguishes configured voice ports without inventing missing historical ports', () => {
+    const target = { name: 'STUN', host: 'voice.example', role: 'voice' }
+    expect(targetEndpoint(target)).toBe('voice.example')
+    expect(cardTargetLabel(target)).toBe('voice')
+    expect(cardTargetLabel({ ...target, port: 3478 })).toBe('STUN · voice.example:3478')
+    expect(cardTargetLabel({ ...target, port: 19302 })).toBe('STUN · voice.example:19302')
+    expect(targetEndpoint({ ...target, host: '2001:db8::4', port: 19302 })).toBe('[2001:db8::4]:19302')
+  })
+
   it('keeps a successful HTTP exchange and a TLS reset on separate attempted addresses', () => {
     const dnsRow: Row = { ...pass, probe: 'dns', stage: 'dns', status: 'dns_response', httpStatus: undefined, tlsVersion: undefined, tlsVerified: undefined }
     const targets = addressResults([dnsRow, { ...pass, attemptedAddress: '198.51.100.4' },

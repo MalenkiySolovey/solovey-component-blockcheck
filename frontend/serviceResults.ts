@@ -1,4 +1,4 @@
-import type { Report, Row } from './api'
+import type { Report, Row, TargetSnapshot } from './api'
 
 export const availabilityStates = ['available', 'limited', 'unavailable', 'unconfirmed'] as const
 export type Availability = typeof availabilityStates[number]
@@ -49,6 +49,16 @@ export function targetResults(count: number, rows: readonly Row[]): TargetResult
   const indexed: Row[][] = Array.from({ length: count }, () => [])
   for (const row of rows) indexed[row.target]?.push(row)
   return indexed.map((targetRows, index) => ({ index, rows: targetRows, state: targetAvailability(targetRows) }))
+}
+
+export function targetEndpoint({ host, port }: TargetSnapshot): string {
+  if (!host || !port) return host
+  return `${host.includes(':') ? `[${host}]` : host}:${port}`
+}
+
+export function cardTargetLabel(target: TargetSnapshot): string {
+  if (target.port && target.host) return `${target.name} · ${targetEndpoint(target)}`
+  return target.role || target.name
 }
 
 export function serviceAvailability(targets: readonly TargetResult[], finished: boolean): Availability {
