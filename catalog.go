@@ -210,10 +210,14 @@ func (g Group) validate() error {
 	if !validText(g.Name, 96, true) || !validText(g.Description, 384, false) || len(g.Targets) == 0 {
 		return ErrInvalidGroup
 	}
-	seen := map[string]bool{}
+	type endpointKey struct {
+		host, role string
+		port       uint16
+	}
+	seen := map[endpointKey]bool{}
 	for _, target := range g.Targets {
 		// A single endpoint can carry multiple probes without duplicate rows.
-		key := target.Host + "\x00" + target.Role
+		key := endpointKey{host: target.Host, role: target.Role, port: target.Port}
 		if seen[key] || target.validate() != nil {
 			return ErrInvalidGroup
 		}

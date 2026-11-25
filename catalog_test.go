@@ -105,3 +105,37 @@ func TestGroupSyntaxCannotNameInternalPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogDistinguishesSTUNPortsOnOneHost(t *testing.T) {
+	c, err := DecodeCatalog(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := Group{Name: "Voice endpoints", Targets: []Target{
+		{Name: "Default STUN", Host: "stun.example", Role: "voice", Port: 3478, Probes: []Probe{STUN}},
+		{Name: "Alternate STUN", Host: "stun.example", Role: "voice", Port: 19302, Probes: []Probe{STUN}},
+	}}
+	change := CatalogChange{Action: "create", ExpectedRevision: c.Revision(), Group: &group}
+	updated, err := c.Apply(change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := DecodeCatalog(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := restored.Groups[len(restored.Groups)-1].Targets
+	if len(targets) != 2 || targets[0].Port != 3478 || targets[1].Port != 19302 {
+		t.Fatalf("STUN ports were not preserved: %+v", targets)
+	}
+	for _, port := range []uint16{3478, 3479} {
+		group.Targets[1].Port = port
+		if _, err := c.Apply(change); !errors.Is(err, ErrInvalidGroup) {
+			t.Fatalf("accepted duplicate or unadmitted STUN port %d: %v", port, err)
+		}
+	}
+}
