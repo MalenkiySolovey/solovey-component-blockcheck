@@ -32,7 +32,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	switch row.Probe {
 	case DNS, DNSUDP, DNSTCP, DoT, DoH, DoQ, DoH3:
 		resolverProbe = row.Probe
-	case TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPData, HTTPSData:
+	case TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPSChrome, HTTPData, HTTPSData:
 		needsSocket = true
 	case QUIC, HTTP3, STUN:
 		needsSocket, datagram, dial = true, true, path.DialUDP
@@ -192,6 +192,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
+	if row.Probe == HTTPSChrome {
+		probeChromeHTTPS(ctx, row, conn, target.Host, nil)
+		return
+	}
 	stream := conn
 	switch row.Probe {
 	case TLS, TLS12, TLS13, HTTPS, HTTPSData:
@@ -265,6 +269,13 @@ func probeHTTP(row *Result, host string, stream io.ReadWriter) {
 		switch {
 		case response.StatusCode >= 200 && response.StatusCode <= 599:
 			row.HTTPStatus, row.Status = response.StatusCode, HTTPResponse
+			if row.Probe == HTTPSChrome {
+				if response.ProtoMajor != 1 || response.ProtoMinor > 1 {
+					row.HTTPStatus, row.Status = 0, ProtocolError
+					return
+				}
+				row.HTTPProtocol = response.Proto
+			}
 			if transfer && response.StatusCode < 300 {
 				if response.Body == http.NoBody {
 					row.Reason = "http_no_transfer_body"

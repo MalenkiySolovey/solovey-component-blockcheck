@@ -7,7 +7,7 @@ export const availabilityColor: Record<Availability, string | undefined> = {
 }
 
 const dns = new Set(['dns', 'dns-udp', 'dns-tcp', 'dot', 'doh', 'doq', 'doh3'])
-const web = new Set(['http', 'https', 'http3'])
+const web = new Set(['http', 'https', 'https-chrome', 'http3'])
 const transfer = new Set(['http-data', 'https-data'])
 const tls = new Set(['tls', 'tls12', 'tls13'])
 const failed = new Set(['resolution_failed', 'timeout', 'connection_refused', 'connection_failed', 'connection_reset',
@@ -77,7 +77,7 @@ export function connectionStages(rows: readonly Row[]) {
   })
 }
 
-export const protocolKeys = ['dns', 'tcp', 'tls', 'http', 'quic', 'transfer', 'stun', 'icmp'] as const
+export const protocolKeys = ['dns', 'tcp', 'tls', 'http', 'chrome', 'quic', 'transfer', 'stun', 'icmp'] as const
 type Protocol = typeof protocolKeys[number]
 
 function protocolOf(probe: string): Protocol | undefined {
@@ -85,6 +85,7 @@ function protocolOf(probe: string): Protocol | undefined {
   if (tls.has(probe)) return 'tls'
   if (transfer.has(probe)) return 'transfer'
   if (probe === 'quic' || probe === 'http3') return 'quic'
+  if (probe === 'https-chrome') return 'chrome'
   if (web.has(probe)) return 'http'
   if (probe === 'tcp' || probe === 'stun' || probe === 'icmp') return probe
 }

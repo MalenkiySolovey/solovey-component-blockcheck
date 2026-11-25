@@ -3,7 +3,8 @@ package blockcheck
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -22,14 +23,14 @@ import (
 
 func fixtureTLSCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	t.Helper()
-	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
 	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
 		DNSNames: []string{"fixture.example"}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, pub, key)
+	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestDeepPlanAndLikeForLikeTLSContrast(t *testing.T) {
 	_, catalog, req, _ := fixture(t, Outbound, DNS, HTTPS, TLS13, ICMP)
 	req.Cells = []Cell{{0, HTTPS}, {0, TLS13}}
 	plan, progress, _, err := prepareSuite(catalog, SuiteRequest{RunRequest: req, Depth: Deep})
-	if err != nil || progress.TotalProbes != 4 || !slices.Equal(plan[0].cells, []Cell{{0, HTTPS}, {0, TLS12}, {0, HTTPSData}, {0, TLS13}}) {
+	if err != nil || progress.TotalProbes != 5 || !slices.Equal(plan[0].cells, []Cell{{0, HTTPS}, {0, TLS12}, {0, HTTPSChrome}, {0, HTTPSData}, {0, TLS13}}) {
 		t.Fatalf("deep selection duplicated or changed saved probes: %+v %v", plan, err)
 	}
 	if _, _, _, err := prepareSuite(catalog, SuiteRequest{RunRequest: req, Depth: "invalid"}); err == nil {

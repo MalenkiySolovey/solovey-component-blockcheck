@@ -1,7 +1,5 @@
 package blockcheck
 
-import "slices"
-
 type Depth string
 
 const (
@@ -26,7 +24,9 @@ func deepCells(cells []Cell) []Cell {
 		case TLS:
 			extra = []Probe{TLS12, TLS13}
 		case HTTPS:
-			extra = []Probe{TLS12, TLS13, HTTPSData}
+			extra = []Probe{TLS12, TLS13, HTTPSChrome, HTTPSData}
+		case HTTPSChrome:
+			extra = []Probe{TLS13}
 		case HTTP:
 			extra = []Probe{HTTPData}
 		}
@@ -127,37 +127,52 @@ func interpretProbe(row Result) *Finding {
 	return nil
 }
 
-type tlsPairs struct{ pending map[int]Result }
+type tlsPairs struct {
+	versions map[int]Result
+	clients  map[int]Result
+}
 
-// The version pair is evidence only on the same admitted address and path.
+// TLS contrasts are evidence only on the same admitted address and path.
 // It does not classify certificate failure or an isolated transport timeout
 // as filtering. One contrast may reflect server policy or a transient fault.
 func (p *tlsPairs) observe(rows []Result) []GroupFinding {
 	var findings []GroupFinding
 	for _, row := range rows {
-		if row.Probe != TLS12 && row.Probe != TLS13 || !row.address.IsValid() || !slices.Contains([]Stage{StageTLS, StageCertificate}, row.Stage) {
+		if !row.address.IsValid() || (!row.TLSVerified && row.Stage != StageTLS) {
 			continue
 		}
-		if p.pending == nil {
-			p.pending = make(map[int]Result)
+		if row.Probe == TLS12 || row.Probe == TLS13 {
+			if other, ok := takeTLSPair(&p.versions, row); ok && (contrastedTLS(row, other) || contrastedTLS(other, row)) {
+				findings = append(findings, tlsContrast(row.Target, TLS12, TLS13, "tls_version_difference"))
+			}
 		}
-		other, ok := p.pending[row.Target]
-		if !ok {
-			p.pending[row.Target] = row
-			continue
-		}
-		delete(p.pending, row.Target)
-		if row.Probe == other.Probe || row.address != other.address || row.TargetRef != other.TargetRef ||
-			row.DNSContext != other.DNSContext || !matchingSocketObservation(row.Socket, other.Socket) {
-			continue
-		}
-		if contrastedTLS(row, other) || contrastedTLS(other, row) {
-			findings = append(findings, GroupFinding{Target: row.Target, Probes: []Probe{TLS12, TLS13}, Finding: Finding{
-				Code: "tls_version_difference", Confidence: "indicative", Alternatives: []string{"tls_compatibility", "intermediary", "transient_failure"},
-			}})
+		if row.Probe == TLS13 || row.Probe == HTTPSChrome && row.TLSProfile == chromeTLSProfile {
+			if other, ok := takeTLSPair(&p.clients, row); ok && (contrastedTLSClient(row, other) || contrastedTLSClient(other, row)) {
+				findings = append(findings, tlsContrast(row.Target, TLS13, HTTPSChrome, "tls_client_profile_difference"))
+			}
 		}
 	}
 	return findings
+}
+
+func takeTLSPair(pending *map[int]Result, row Result) (Result, bool) {
+	if *pending == nil {
+		*pending = make(map[int]Result)
+	}
+	other, ok := (*pending)[row.Target]
+	if !ok {
+		(*pending)[row.Target] = row
+		return Result{}, false
+	}
+	delete(*pending, row.Target)
+	return other, row.Probe != other.Probe && row.address == other.address && row.TargetRef == other.TargetRef &&
+		row.DNSContext == other.DNSContext && matchingSocketObservation(row.Socket, other.Socket)
+}
+
+func tlsContrast(target int, a, b Probe, code string) GroupFinding {
+	return GroupFinding{Target: target, Probes: []Probe{a, b}, Finding: Finding{
+		Code: code, Confidence: "indicative", Alternatives: []string{"tls_compatibility", "intermediary", "transient_failure"},
+	}}
 }
 
 func matchingSocketObservation(a, b *SocketEvidence) bool {
@@ -168,6 +183,13 @@ func matchingSocketObservation(a, b *SocketEvidence) bool {
 }
 
 func contrastedTLS(passed, failed Result) bool {
-	return passed.Status == OK && passed.TLSVerified && failed.Stage == StageTLS &&
-		(failed.Status == TLSFailed || failed.Status == ConnectionReset || failed.Status == StreamClosed || failed.Status == Timeout)
+	return passed.Status == OK && passed.TLSVerified && incompleteTLS(failed)
+}
+
+func contrastedTLSClient(passed, failed Result) bool {
+	return passed.TLSVerified && passed.TLSVersion == "TLS 1.3" && incompleteTLS(failed)
+}
+
+func incompleteTLS(row Result) bool {
+	return row.Stage == StageTLS && (row.Status == TLSFailed || row.Status == ConnectionReset || row.Status == StreamClosed || row.Status == Timeout)
 }

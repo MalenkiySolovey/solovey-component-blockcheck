@@ -50,6 +50,15 @@ describe('protocol observations', () => {
     expect(steps).toMatchObject({ quic: 'available', certificate: 'available', tls: 'unconfirmed', http: 'unconfirmed', tcp: 'unconfirmed' })
   })
 
+  it('keeps a Chrome-profile failure distinct from ordinary site availability', () => {
+    const chrome = { ...failed, probe: 'https-chrome', tlsProfile: 'chrome-133' }
+    expect(serviceAvailability(targetResults(1, [pass, chrome]), true)).toBe('limited')
+    expect(protocolResults([pass, chrome])).toEqual(expect.arrayContaining([
+      { protocol: 'chrome', state: 'unavailable' }, { protocol: 'http', state: 'available' },
+    ]))
+    expect(connectionStages([chrome]).find(step => step.stage === 'certificate')).toMatchObject({ observed: false })
+  })
+
   it('does not compare a different generation, DNS override, observed egress, or unfinished result as unchanged', () => {
     const reached = { ...report, results: [{ ...pass, socket: { egress: 'one' } }] }
     expect(reportContext(reached, reached)).toBe('observed')

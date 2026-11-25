@@ -21,12 +21,20 @@ the number of selected definitions. The serialized catalog and imports retain
 a size budget independent of the number of active probes.
 
 Quick runs use the configured probes. On a Deep run, HTTP/HTTPS and TLS probes
-add applicable transfer and exact TLS 1.2/1.3 probes without editing the group.
+add applicable transfer, exact TLS 1.2/1.3 and Chrome-profile HTTPS probes
+without editing the group.
 HTTP/HTTPS checks use `HEAD /`. Transfer checks use `GET /` and read up to 64 KiB
 of body without following redirects or retaining response data. TLS always uses
 normal certificate verification. DNS probing is delegated to the selected path,
 with no fallback. Named targets reach a policy-checked,
 pinned address; the full answer is rejected if any address is disallowed.
+The `https-chrome` probe uses the pinned uTLS Chrome 133 ClientHello, verifies
+the certificate, and sends one `HEAD /` over the same admitted stream using
+negotiated HTTP/2 or HTTP/1.x. It does not reproduce Chrome's HTTP/2 settings,
+page loading, or the Chrome 150 profile in the frozen ZapretGUI reference.
+A contrast with the standard TLS 1.3 probe requires the same name, admitted
+address and path evidence. It can reflect server support, an intermediary or
+a transient failure; it is not proof of fingerprint-based filtering.
 Where the selected path supplies an admitted connected UDP socket, `quic` checks
 an authenticated TLS 1.3 handshake with HTTP/3 ALPN. `http3` also requests
 `HEAD /` on that exact session. Neither probe dials another address, falls back
