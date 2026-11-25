@@ -4,13 +4,22 @@ Optional, disabled-by-default, manual connectivity diagnostics. The host supplie
 the runtime path and enforces destination policy. BlockCheck does not select a
 route, change network configuration, or create a listener or background worker.
 
-The catalog adapts 12 quick-service groups and four control groups from frozen
+The catalog adapts 12 quick-service groups and four control groups from pinned
 ZapretGUI data. See `SOURCE_PROVENANCE.json` and `NOTICE`. A default is copied to
 the user catalog on the first write; later defaults never overwrite saved groups.
 Editing and importing definitions do not run probes. Definitions accept only a
 hostname or public IP and supported probe identifiers, not URLs or commands.
 
-A run admits at most 32 selected probes, one at a time, for up to 30 seconds.
+The foreground stream checks one group or every included group against one
+catalog revision and one host path. It returns progress and probe observations
+in batches of up to three, continues after target failures, and stops when its
+path retires. Explicit cancellation retains completed batches and sends the
+terminal Jobs projection. Closing the request cancels work as well. No job
+continues after the request ends. The compatibility JSON endpoint still has a
+32-probe, 30-second limit; streamed runs count batches rather than limiting
+the number of selected definitions. The serialized catalog and imports retain
+a size budget independent of the number of active probes.
+
 TCP/TLS test port 443; HTTP/HTTPS send `HEAD /` to port 80/443 with no redirects
 or body reads. TLS uses normal certificate verification. DNS probing is delegated
 to the selected path, with no fallback. Named targets reach a policy-checked,

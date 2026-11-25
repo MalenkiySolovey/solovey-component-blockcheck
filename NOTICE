@@ -1,10 +1,11 @@
 Solovey BlockCheck Component
 Copyright (C) 2026 MalenkiySolovey
 
-defaults.json adapts service names and endpoint data from ZapretGUI 22.0.0.0,
-commit 4934082a4069e2e66e35668cf6a03cf4c8de16d2. The following notice covers
-that data. No upstream executable or probe code or downstream transfer-test
-data is included.
+defaults.json adapts service names and endpoint data from ZapretGUI commit
+47a1b0d7c4acb0426bdaf0c2f03a40df458a7e91. The corresponding target data in
+22.0.0.0 (4934082a4069e2e66e35668cf6a03cf4c8de16d2) is unchanged. The following
+notice covers that data. No upstream executable, probe code or separately
+licensed transfer-test data is included.
 
 MIT License
 

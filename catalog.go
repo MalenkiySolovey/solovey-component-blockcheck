@@ -41,10 +41,8 @@ var knownProbes = [...]Probe{DNS, TCP, TLS, HTTP, HTTPS, DNSUDP, DNSTCP, DoT, Do
 const (
 	CatalogSchema   = "solovey.blockcheck.groups/v1"
 	TransferSchema  = "solovey.blockcheck.group/v1"
-	ReferenceCommit = "4934082a4069e2e66e35668cf6a03cf4c8de16d2"
+	ReferenceCommit = "47a1b0d7c4acb0426bdaf0c2f03a40df458a7e91"
 	MaxCatalogBytes = 128 << 10
-	MaxGroups       = 64
-	MaxTargets      = 32
 )
 
 var (
@@ -76,6 +74,7 @@ type Group struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Origin      *TemplateOrigin `json:"origin,omitempty"`
+	Disabled    bool            `json:"disabled,omitempty"`
 	Targets     []Target        `json:"targets"`
 }
 
@@ -171,7 +170,7 @@ func (c Catalog) Validate() error {
 	if c.Schema != CatalogSchema || c.Groups == nil {
 		return ErrInvalidCatalog
 	}
-	if len(c.Groups) > MaxGroups {
+	if data, err := json.Marshal(c); err != nil || len(data) > MaxCatalogBytes {
 		return ErrCatalogCapacity
 	}
 	seen := make(map[string]bool, len(c.Groups))
@@ -180,10 +179,6 @@ func (c Catalog) Validate() error {
 			return ErrInvalidGroup
 		}
 		seen[group.ID] = true
-	}
-	data, err := json.Marshal(c)
-	if err != nil || len(data) > MaxCatalogBytes {
-		return ErrCatalogCapacity
 	}
 	return nil
 }
@@ -206,7 +201,7 @@ func validText(text string, limit int, required bool) bool {
 }
 
 func (g Group) validate() error {
-	if !validText(g.Name, 96, true) || !validText(g.Description, 384, false) || len(g.Targets) == 0 || len(g.Targets) > MaxTargets {
+	if !validText(g.Name, 96, true) || !validText(g.Description, 384, false) || len(g.Targets) == 0 {
 		return ErrInvalidGroup
 	}
 	seen := map[string]bool{}
@@ -313,6 +308,11 @@ func (c Catalog) Apply(change CatalogChange) (Catalog, error) {
 			return Catalog{}, ErrGroupNotFound
 		}
 		result.Groups = slices.Delete(result.Groups, i, i+1)
+	case "toggle":
+		if i < 0 {
+			return Catalog{}, ErrGroupNotFound
+		}
+		result.Groups[i].Disabled = !c.Groups[i].Disabled
 	case "order":
 		if len(change.Order) != len(c.Groups) {
 			return Catalog{}, ErrInvalidCatalog
