@@ -68,17 +68,19 @@ type PathEvidence struct {
 }
 
 type SocketEvidence struct {
-	Interface    string `json:"interface,omitempty"`
-	Egress       string `json:"egress,omitempty"`
-	OutsidePanel bool   `json:"outsidePanel,omitempty"`
+	Interface     string `json:"interface,omitempty"`
+	Egress        string `json:"egress,omitempty"`
+	OutsidePanel  bool   `json:"outsidePanel,omitempty"`
+	ProxyAccepted bool   `json:"proxyAccepted,omitempty"`
 }
 
 type Resolution struct {
-	Addresses []netip.Addr
-	Context   string
-	Transport string
-	RCode     *uint16
-	Socket    SocketEvidence
+	Addresses           []netip.Addr
+	Context             string
+	Transport           string
+	ConfiguredTransport string
+	RCode               *uint16
+	Socket              SocketEvidence
 }
 
 type Path struct {
@@ -142,21 +144,22 @@ var (
 
 type Result struct {
 	Cell
-	TargetRef     string           `json:"targetRef"`
-	Status        Code             `json:"status"`
-	Reason        string           `json:"reason,omitempty"`
-	ElapsedMS     int64            `json:"elapsedMs"`
-	AddressFamily Family           `json:"addressFamily,omitempty"`
-	DNSContext    string           `json:"dnsContext,omitempty"`
-	DNSTransport  string           `json:"dnsTransport,omitempty"`
-	DNSRCode      *uint16          `json:"dnsRcode,omitempty"`
-	DNSSocket     *SocketEvidence  `json:"dnsSocket,omitempty"`
-	AnswerCount   int              `json:"answerCount,omitempty"`
-	AnswerDigest  string           `json:"answerDigest,omitempty"`
-	TLSVerified   bool             `json:"tlsVerified,omitempty"`
-	HTTPStatus    int              `json:"httpStatus,omitempty"`
-	Socket        *SocketEvidence  `json:"socket,omitempty"`
-	Proof         *health.Evidence `json:"evidence,omitempty"`
+	TargetRef              string           `json:"targetRef"`
+	Status                 Code             `json:"status"`
+	Reason                 string           `json:"reason,omitempty"`
+	ElapsedMS              int64            `json:"elapsedMs"`
+	AddressFamily          Family           `json:"addressFamily,omitempty"`
+	DNSContext             string           `json:"dnsContext,omitempty"`
+	DNSTransport           string           `json:"dnsTransport,omitempty"`
+	DNSConfiguredTransport string           `json:"dnsConfiguredTransport,omitempty"`
+	DNSRCode               *uint16          `json:"dnsRcode,omitempty"`
+	DNSSocket              *SocketEvidence  `json:"dnsSocket,omitempty"`
+	AnswerCount            int              `json:"answerCount,omitempty"`
+	AnswerDigest           string           `json:"answerDigest,omitempty"`
+	TLSVerified            bool             `json:"tlsVerified,omitempty"`
+	HTTPStatus             int              `json:"httpStatus,omitempty"`
+	Socket                 *SocketEvidence  `json:"socket,omitempty"`
+	Proof                  *health.Evidence `json:"evidence,omitempty"`
 }
 
 type Report struct {

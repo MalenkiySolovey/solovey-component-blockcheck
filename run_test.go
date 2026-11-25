@@ -121,6 +121,31 @@ func TestDNSNegativeResponseAndWrongTransportAreNotProof(t *testing.T) {
 	}
 }
 
+func TestConfiguredDNSAndProxyAcknowledgementAreNotEndpointEvidence(t *testing.T) {
+	c, cat, req, path := fixture(t, Outbound, DNSUDP, TCP)
+	code := uint16(0)
+	path.Resolve = func(context.Context, string, Family, Probe) (Resolution, error) {
+		return Resolution{Addresses: []netip.Addr{fixtureAddr}, Context: "explicit-resolver", ConfiguredTransport: "dns-udp", RCode: &code}, nil
+	}
+	path.DialTCP = func(_ context.Context, target netip.AddrPort) (net.Conn, SocketEvidence, error) {
+		if target != netip.AddrPortFrom(fixtureAddr, 443) {
+			t.Fatalf("changed dial target: %v", target)
+		}
+		client, proxy := net.Pipe()
+		_ = proxy.Close()
+		return client, SocketEvidence{ProxyAccepted: true}, nil
+	}
+	rows := runFixture(t, c, cat, req, path).Results
+	dns, tcp := rows[0], rows[1]
+	if dns.Status != Unobservable || dns.Reason != "dns_transport_not_observed" || dns.DNSTransport != "" ||
+		dns.DNSConfiguredTransport != "dns-udp" || dns.AnswerCount != 1 || dns.Proof != nil {
+		t.Fatalf("configured UDP treated as observed: %+v", dns)
+	}
+	if tcp.Status != Unobservable || tcp.Reason != "proxy_connect_not_endpoint_proof" || tcp.Socket == nil || !tcp.Socket.ProxyAccepted || tcp.Proof != nil {
+		t.Fatalf("proxy acknowledgement treated as endpoint proof: %+v", tcp)
+	}
+}
+
 func TestHTTPReportsFinalStatusAndNeverFollowsRedirect(t *testing.T) {
 	for _, tc := range []struct {
 		name, head string

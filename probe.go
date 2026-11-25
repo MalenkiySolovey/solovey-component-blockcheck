@@ -67,14 +67,13 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 			row.Status, row.Reason = Unobservable, "dns_context_not_observed"
 			return
 		}
-		if resolverProbe != DNS && resolved.Transport != string(resolverProbe) {
-			row.Status, row.Reason = Unobservable, "dns_transport_not_observed"
-			return
-		}
 		row.DNSSocket = socketObservation(resolved.Socket)
 		row.DNSContext = resolved.Context
 		if operationref.ValidToken(resolved.Transport, 64) {
 			row.DNSTransport = resolved.Transport
+		}
+		if operationref.ValidToken(resolved.ConfiguredTransport, 64) {
+			row.DNSConfiguredTransport = resolved.ConfiguredTransport
 		}
 		if resolved.RCode != nil && *resolved.RCode <= 4095 {
 			value := *resolved.RCode
@@ -103,6 +102,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		slices.SortFunc(ordered, netip.Addr.Compare)
 		ordered = slices.Compact(ordered)
 		row.AnswerDigest, row.AnswerCount = revision(ordered), len(ordered)
+	}
+	if resolverProbe != DNS && row.DNSTransport != string(resolverProbe) {
+		row.Status, row.Reason = Unobservable, "dns_transport_not_observed"
+		return
 	}
 	if !needsSocket && (len(addresses) != 0 || row.DNSRCode != nil) {
 		row.Status = DNSResponse
@@ -146,6 +149,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	}
 	row.Socket = socketObservation(evidence)
 	if row.Probe == TCP {
+		if evidence.ProxyAccepted {
+			row.Status, row.Reason = Unobservable, "proxy_connect_not_endpoint_proof"
+			return
+		}
 		row.Status = OK
 		return
 	}
