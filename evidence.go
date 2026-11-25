@@ -1,0 +1,160 @@
+package blockcheck
+
+import "slices"
+
+type Depth string
+
+const (
+	Quick Depth = "quick"
+	Deep  Depth = "deep"
+)
+
+func (d Depth) valid() bool { return d == "" || d == Quick || d == Deep }
+
+// Deep adds applicable on-wire probes to the selected cells, not to the
+// saved catalog. Neither mode changes the admitted destination or path.
+func deepCells(cells []Cell) []Cell {
+	seen := make(map[Cell]bool, len(cells))
+	for _, cell := range cells {
+		seen[cell] = true
+	}
+	var expanded []Cell
+	for _, cell := range cells {
+		expanded = append(expanded, cell)
+		var extra []Probe
+		switch cell.Probe {
+		case TLS:
+			extra = []Probe{TLS12, TLS13}
+		case HTTPS:
+			extra = []Probe{TLS12, TLS13, HTTPSData}
+		case HTTP:
+			extra = []Probe{HTTPData}
+		}
+		for _, probe := range extra {
+			additional := Cell{Target: cell.Target, Probe: probe}
+			if !seen[additional] {
+				seen[additional] = true
+				expanded = append(expanded, additional)
+			}
+		}
+	}
+	return expanded
+}
+
+type Stage string
+
+const (
+	StageDNS         Stage = "dns"
+	StageTCP         Stage = "tcp"
+	StageTLS         Stage = "tls"
+	StageCertificate Stage = "certificate"
+	StageHTTP        Stage = "http"
+	StageTransfer    Stage = "transfer"
+)
+
+// Confidence describes the observation or contrast, not confidence that a
+// particular operator, network device, or filtering mechanism caused it.
+type Finding struct {
+	Code         string   `json:"code"`
+	Confidence   string   `json:"confidence"`
+	Alternatives []string `json:"alternatives,omitempty"`
+}
+
+type GroupFinding struct {
+	Target int     `json:"target"`
+	Probes []Probe `json:"probes"`
+	Finding
+}
+
+func fact(code string, alternatives ...string) *Finding {
+	return &Finding{Code: code, Confidence: "observed", Alternatives: alternatives}
+}
+
+func interpretProbe(row Result) *Finding {
+	switch row.Status {
+	case Rejected, Unobservable, Unsupported, PathUnavailable, Canceled:
+		return nil
+	case CertificateInvalid:
+		return fact("certificate_unverified", "certificate_configuration", "intermediary")
+	}
+	switch row.Stage {
+	case StageDNS:
+		if row.DNSRCode != nil && *row.DNSRCode != 0 {
+			return fact("dns_negative", "resolver_policy", "dns_configuration")
+		}
+		if row.Status != DNSResponse || row.AnswerCount == 0 {
+			return fact("dns_no_address", "resolver_policy", "dns_configuration", "path_or_service")
+		}
+	case StageTCP:
+		if row.Status != OK {
+			if row.Status == Refused {
+				return fact("tcp_refused", "listener_or_firewall", "intermediary")
+			}
+			return fact("tcp_not_established", "path_or_service", "listener_or_firewall", "intermediary")
+		}
+	case StageTLS:
+		if row.Status != OK {
+			return fact("tls_handshake_incomplete", "tls_compatibility", "path_or_service", "intermediary")
+		}
+	case StageHTTP:
+		if row.Status != HTTPResponse {
+			return fact("http_response_incomplete", "service_or_proxy", "path_or_service")
+		}
+		if row.HTTPStatus >= 400 {
+			return fact("http_error_response", "service_or_proxy", "service_request_policy")
+		}
+	case StageTransfer:
+		if row.Status == StreamClosed || row.Status == ConnectionReset || row.Status == Timeout {
+			return fact("transfer_interrupted", "service_or_proxy", "path_or_service")
+		}
+		if row.Status != HTTPResponse {
+			return fact("transfer_protocol_error", "service_or_proxy", "path_or_service")
+		}
+	}
+	return nil
+}
+
+type tlsPairs struct{ pending map[int]Result }
+
+// The version pair is evidence only on the same admitted address and path.
+// It does not classify certificate failure or an isolated transport timeout
+// as filtering. One contrast may reflect server policy or a transient fault.
+func (p *tlsPairs) observe(rows []Result) []GroupFinding {
+	var findings []GroupFinding
+	for _, row := range rows {
+		if row.Probe != TLS12 && row.Probe != TLS13 || !row.address.IsValid() || !slices.Contains([]Stage{StageTLS, StageCertificate}, row.Stage) {
+			continue
+		}
+		if p.pending == nil {
+			p.pending = make(map[int]Result)
+		}
+		other, ok := p.pending[row.Target]
+		if !ok {
+			p.pending[row.Target] = row
+			continue
+		}
+		delete(p.pending, row.Target)
+		if row.Probe == other.Probe || row.address != other.address || row.TargetRef != other.TargetRef ||
+			row.DNSContext != other.DNSContext || !matchingSocketObservation(row.Socket, other.Socket) {
+			continue
+		}
+		if contrastedTLS(row, other) || contrastedTLS(other, row) {
+			findings = append(findings, GroupFinding{Target: row.Target, Probes: []Probe{TLS12, TLS13}, Finding: Finding{
+				Code: "tls_version_difference", Confidence: "indicative", Alternatives: []string{"tls_compatibility", "intermediary", "transient_failure"},
+			}})
+		}
+	}
+	return findings
+}
+
+func matchingSocketObservation(a, b *SocketEvidence) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func contrastedTLS(passed, failed Result) bool {
+	return passed.Status == OK && passed.TLSVerified && failed.Stage == StageTLS &&
+		(failed.Status == TLSFailed || failed.Status == ConnectionReset || failed.Status == StreamClosed || failed.Status == Timeout)
+}

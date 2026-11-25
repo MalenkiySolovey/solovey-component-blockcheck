@@ -14,12 +14,15 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/MalenkiySolovey/solovey-host/operationref"
 )
 
 const maxHeaderBytes = 16 << 10
 const maxDNSAddresses = 64
+const maxTransferBytes = 64 << 10
+const maxTransferFramingBytes = 32 << 10
 
 func performProbe(ctx context.Context, row *Result, target Target, path Path, family Family, permit func(netip.Addr) bool) {
 	resolverProbe := DNS
@@ -27,7 +30,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	switch row.Probe {
 	case DNS, DNSUDP, DNSTCP, DoT, DoH, DoQ, DoH3:
 		resolverProbe = row.Probe
-	case TCP, TLS, HTTP, HTTPS:
+	case TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPData, HTTPSData:
 		needsSocket = true
 		if path.DialTCP == nil {
 			row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
@@ -38,6 +41,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		return
 	}
 	var resolved Resolution
+	row.Stage = StageDNS
 	if addr, err := netip.ParseAddr(target.Host); err == nil {
 		if !needsSocket {
 			row.Status, row.Reason = Unsupported, "dns_requires_hostname"
@@ -54,21 +58,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 			row.Status, row.Reason = Unobservable, string(ErrBaselineUnobservable)
 			return
 		}
-		if err != nil {
-			row.Status = classify(err, ResolutionFailed)
-			if errors.Is(err, ErrResolverUnsupported) || errors.Is(err, ErrNoProbeCapability) {
-				row.Status, row.Reason = Unsupported, pathReason(err)
-			} else if errors.Is(err, ErrBaselineUnobservable) || errors.Is(err, ErrGenerationChanged) {
-				row.Status, row.Reason = Unobservable, pathReason(err)
-			}
-			return
-		}
-		if !operationref.ValidToken(resolved.Context, 64) {
-			row.Status, row.Reason = Unobservable, "dns_context_not_observed"
-			return
-		}
 		row.DNSSocket = socketObservation(resolved.Socket)
-		row.DNSContext = resolved.Context
+		if operationref.ValidToken(resolved.Context, 64) {
+			row.DNSContext = resolved.Context
+		}
 		if operationref.ValidToken(resolved.Transport, 64) {
 			row.DNSTransport = resolved.Transport
 		}
@@ -78,6 +71,19 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		if resolved.RCode != nil && *resolved.RCode <= 4095 {
 			value := *resolved.RCode
 			row.DNSRCode = &value
+		}
+		if err != nil {
+			row.Status = classify(err, ResolutionFailed)
+			if errors.Is(err, ErrResolverUnsupported) || errors.Is(err, ErrNoProbeCapability) {
+				row.Status, row.Reason = Unsupported, pathReason(err)
+			} else if errors.Is(err, ErrBaselineUnobservable) || errors.Is(err, ErrGenerationChanged) {
+				row.Status, row.Reason = Unobservable, pathReason(err)
+			}
+			return
+		}
+		if row.DNSContext == "" {
+			row.Status, row.Reason = Unobservable, "dns_context_not_observed"
+			return
 		}
 	}
 	if len(resolved.Addresses) > maxDNSAddresses {
@@ -120,15 +126,17 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		return
 	}
 	address := addresses[0]
+	row.address = address
 	if address.Is4() {
 		row.AddressFamily = IPv4
 	} else {
 		row.AddressFamily = IPv6
 	}
 	port := uint16(443)
-	if row.Probe == HTTP {
+	if row.Probe == HTTP || row.Probe == HTTPData {
 		port = 80
 	}
+	row.Stage = StageTCP
 	conn, evidence, err := path.DialTCP(ctx, netip.AddrPortFrom(address, port))
 	if conn != nil {
 		defer conn.Close()
@@ -164,40 +172,85 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	stream := conn
-	if row.Probe == TLS || row.Probe == HTTPS {
-		secure := tls.Client(stream, &tls.Config{ServerName: target.Host, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}})
-		if err := secure.HandshakeContext(ctx); err != nil {
-			row.Status = classify(err, TLSFailed)
+	switch row.Probe {
+	case TLS, TLS12, TLS13, HTTPS, HTTPSData:
+		secure := handshake(ctx, row, stream, probeTLSConfig(row.Probe, target.Host))
+		if secure == nil {
 			return
 		}
-		row.TLSVerified = true
-		if row.Probe == TLS {
+		if row.Probe == TLS || row.Probe == TLS12 || row.Probe == TLS13 {
 			row.Status = OK
 			return
 		}
 		stream = secure
 	}
-	authority := target.Host
+	probeHTTP(row, target.Host, stream)
+}
+
+func probeTLSConfig(probe Probe, host string) *tls.Config {
+	config := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}
+	switch probe {
+	case TLS12:
+		config.MaxVersion = tls.VersionTLS12
+	case TLS13:
+		config.MinVersion, config.MaxVersion = tls.VersionTLS13, tls.VersionTLS13
+	}
+	return config
+}
+
+func handshake(ctx context.Context, row *Result, stream net.Conn, config *tls.Config) *tls.Conn {
+	row.Stage = StageTLS
+	secure := tls.Client(stream, config)
+	if err := secure.HandshakeContext(ctx); err != nil {
+		row.Status = classify(err, TLSFailed)
+		if row.Status == CertificateInvalid {
+			row.Stage = StageCertificate
+		}
+		return nil
+	}
+	state := secure.ConnectionState()
+	row.TLSVerified, row.TLSVersion = len(state.VerifiedChains) != 0, tls.VersionName(state.Version)
+	return secure
+}
+
+func probeHTTP(row *Result, host string, stream io.ReadWriter) {
+	row.Stage = StageHTTP
+	authority := host
 	if strings.Contains(authority, ":") {
 		authority = "[" + authority + "]"
 	}
 	request := &http.Request{Method: http.MethodHead, URL: &url.URL{Path: "/"}, Host: authority, Header: http.Header{}, Close: true}
+	transfer := row.Probe == HTTPData || row.Probe == HTTPSData
+	if transfer {
+		request.Method = http.MethodGet
+		request.Header.Set("Accept-Encoding", "identity")
+	}
 	if err := request.Write(stream); err != nil {
 		row.Status = classify(err, ProtocolError)
 		return
 	}
-	// Informational and final heads spend the same budget. Do not upgrade,
-	// follow redirects, read a body, or copy peer-controlled headers.
-	reader := bufio.NewReader(io.LimitReader(stream, maxHeaderBytes))
+	// All response heads share a budget. Never follow redirects or export headers.
+	raw := &io.LimitedReader{R: stream, N: maxHeaderBytes}
+	reader := bufio.NewReader(raw)
 	for range 4 {
 		response, err := http.ReadResponse(reader, request)
 		if err != nil {
 			row.Status = classify(err, ProtocolError)
+			if raw.N == 0 {
+				row.Status, row.Reason = ProtocolError, "http_header_budget_exceeded"
+			}
 			return
 		}
 		switch {
 		case response.StatusCode >= 200 && response.StatusCode <= 599:
 			row.HTTPStatus, row.Status = response.StatusCode, HTTPResponse
+			if transfer && response.StatusCode < 300 {
+				if response.Body == http.NoBody {
+					row.Reason = "http_no_transfer_body"
+				} else {
+					readTransfer(row, response, raw)
+				}
+			}
 			return
 		case response.StatusCode < 100 || response.StatusCode == 101 || response.StatusCode >= 200:
 			row.Status = ProtocolError
@@ -205,6 +258,36 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		}
 	}
 	row.Status, row.Reason = ProtocolError, "http_informational_response_limit"
+}
+
+func readTransfer(row *Result, response *http.Response, raw *io.LimitedReader) {
+	row.Stage = StageTransfer
+	if response.ContentLength > 0 {
+		row.BodyExpected = response.ContentLength
+	}
+	// Bound peer-controlled framing too (e.g. chunk extensions).
+	raw.N = maxTransferBytes + maxTransferFramingBytes
+	started := time.Now()
+	n, err := io.CopyN(io.Discard, response.Body, maxTransferBytes)
+	row.BodyBytes, row.BodyReadMS = n, time.Since(started).Milliseconds()
+	switch {
+	case err == nil:
+		if row.BodyExpected != n {
+			row.Reason = "transfer_sample_limit"
+		}
+	case raw.N == 0:
+		row.Status, row.Reason = Unsupported, "http_transfer_budget_exceeded"
+	case errors.Is(err, io.EOF):
+		// EOF is normal if HTTP framing did not promise further data.
+		if response.ContentLength > n {
+			row.Status = StreamClosed
+		} else if n == 0 {
+			row.Reason = "http_no_transfer_body"
+		}
+	default:
+		row.Status = classify(err, ProtocolError)
+	}
+	// The caller closes the connection; closing Body here can drain the rest.
 }
 
 func outsidePanel(e SocketEvidence) bool {
@@ -232,6 +315,10 @@ func classify(err error, fallback Code) Code {
 		return Timeout
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return Refused
+	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE):
+		return ConnectionReset
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return StreamClosed
 	}
 	var timeout net.Error
 	if errors.As(err, &timeout) && timeout.Timeout() {

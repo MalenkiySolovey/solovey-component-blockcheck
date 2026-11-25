@@ -115,6 +115,8 @@ const (
 	Canceled           Code = "canceled"
 	Refused            Code = "connection_refused"
 	DialFailed         Code = "connection_failed"
+	ConnectionReset    Code = "connection_reset"
+	StreamClosed       Code = "stream_closed"
 	TLSFailed          Code = "tls_failed"
 	CertificateInvalid Code = "certificate_invalid"
 	ProtocolError      Code = "protocol_error"
@@ -149,9 +151,12 @@ type Result struct {
 	Cell
 	TargetRef              string           `json:"targetRef"`
 	Status                 Code             `json:"status"`
+	Stage                  Stage            `json:"stage,omitempty"`
+	Interpretation         *Finding         `json:"interpretation,omitempty"`
 	Reason                 string           `json:"reason,omitempty"`
 	ElapsedMS              int64            `json:"elapsedMs"`
 	AddressFamily          Family           `json:"addressFamily,omitempty"`
+	address                netip.Addr       // pairing key; never serialized
 	DNSContext             string           `json:"dnsContext,omitempty"`
 	DNSTransport           string           `json:"dnsTransport,omitempty"`
 	DNSConfiguredTransport string           `json:"dnsConfiguredTransport,omitempty"`
@@ -160,7 +165,11 @@ type Result struct {
 	AnswerCount            int              `json:"answerCount,omitempty"`
 	AnswerDigest           string           `json:"answerDigest,omitempty"`
 	TLSVerified            bool             `json:"tlsVerified,omitempty"`
+	TLSVersion             string           `json:"tlsVersion,omitempty"`
 	HTTPStatus             int              `json:"httpStatus,omitempty"`
+	BodyBytes              int64            `json:"bodyBytes,omitempty"`
+	BodyReadMS             int64            `json:"bodyReadMs,omitempty"`
+	BodyExpected           int64            `json:"bodyExpected,omitempty"`
 	Socket                 *SocketEvidence  `json:"socket,omitempty"`
 	Proof                  *health.Evidence `json:"evidence,omitempty"`
 }
@@ -175,6 +184,7 @@ type Report struct {
 	StartedAt     time.Time        `json:"startedAt"`
 	FinishedAt    time.Time        `json:"finishedAt"`
 	Results       []Result         `json:"results"`
+	Findings      []GroupFinding   `json:"findings,omitempty"`
 }
 
 func requestedCells(group Group, req RunRequest) ([]Cell, error) {
@@ -301,6 +311,8 @@ func (c *Component) Run(ctx context.Context, host hostref.Ref, catalog Catalog, 
 		attachProof(&row, ref, report.GroupRevision, path.Evidence)
 		report.Results = append(report.Results, row)
 	}
+	var pairs tlsPairs
+	report.Findings = pairs.observe(report.Results)
 	phase, outcome := "COMPLETED", operationref.OutcomeCommitted
 	if runCtx.Err() != nil {
 		phase, outcome = strings.ToUpper(string(classify(runCtx.Err(), Canceled))), operationref.OutcomeFailed
@@ -359,14 +371,22 @@ func probeCell(ctx context.Context, cell Cell, target Target, path Path, pathErr
 			row.Status, row.Reason = Unobservable, pathReason(err)
 		} else {
 			performProbe(probeCtx, &row, target, path, family, permit)
-			if err := probeCtx.Err(); err != nil {
+			if err := ctx.Err(); err != nil {
 				row = Result{Cell: cell, TargetRef: row.TargetRef, Status: classify(err, Canceled)}
+			} else if probeCtx.Err() != nil {
+				// The probe expired. Keep partial evidence only while the path is current.
+				if err := checkCurrent(ctx, path); err != nil {
+					row = Result{Cell: cell, TargetRef: row.TargetRef, Status: Unobservable, Reason: pathReason(err)}
+				} else {
+					row.Status, row.Reason = Timeout, ""
+				}
 			} else if err := path.Current(probeCtx); err != nil {
 				row = Result{Cell: cell, TargetRef: row.TargetRef, Status: Unobservable, Reason: pathReason(err)}
 			}
 		}
 	}
 	row.ElapsedMS = time.Since(started).Milliseconds()
+	row.Interpretation = interpretProbe(row)
 	return row
 }
 
@@ -384,6 +404,9 @@ func attachProof(row *Result, ref operationref.Reference, groupRevision string, 
 }
 
 func (r Result) positive() bool {
+	if r.Probe == HTTPData || r.Probe == HTTPSData {
+		return r.Status == HTTPResponse && r.HTTPStatus >= 200 && r.HTTPStatus < 300 && r.BodyBytes > 0
+	}
 	return r.Status == OK || r.Status == HTTPResponse && r.HTTPStatus >= 200 && r.HTTPStatus < 300 ||
 		r.Status == DNSResponse && r.AnswerCount > 0 && (r.DNSRCode == nil || *r.DNSRCode == 0)
 }
@@ -422,7 +445,7 @@ func Comparable(a, b Report) bool {
 
 func comparableStatus(status Code) bool {
 	switch status {
-	case OK, DNSResponse, HTTPResponse, ResolutionFailed, Timeout, Refused, DialFailed, TLSFailed, CertificateInvalid, ProtocolError:
+	case OK, DNSResponse, HTTPResponse, ResolutionFailed, Timeout, Refused, DialFailed, ConnectionReset, StreamClosed, TLSFailed, CertificateInvalid, ProtocolError:
 		return true
 	default:
 		return false

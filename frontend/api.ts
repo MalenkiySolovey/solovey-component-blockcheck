@@ -2,24 +2,28 @@ import api from '@solovey/component-ui/api'
 
 export type Mode = 'PANEL' | 'HOST_BASELINE' | 'OUTBOUND'
 export type Family = 'any' | 'ipv4' | 'ipv6'
+export type Depth = 'quick' | 'deep'
 export type Target = { name: string; host: string; role: string; port?: number; probes: string[] }
 export type Group = { id: string; name: string; description?: string; origin?: { template: string; commit: string }; disabled?: boolean; targets: Target[] }
 export type Catalog = { groups: Group[]; templates: Group[]; probes: string[]; revision: string }
 export type Transfer = { schema: 'solovey.blockcheck.group/v1'; group: Group }
 export type Cell = { target: number; probe: string }
 type Socket = { interface?: string; egress?: string; outsidePanel?: boolean }
+export type Finding = { code: string; confidence: 'observed' | 'indicative'; alternatives?: string[] }
+export type GroupFinding = Finding & { target: number; probes: string[] }
 export type Row = Cell & { targetRef: string; status: string; reason?: string; elapsedMs: number; addressFamily?: string;
   dnsContext?: string; dnsTransport?: string; dnsConfiguredTransport?: string; dnsRcode?: number; answerCount?: number; answerDigest?: string;
-  tlsVerified?: boolean; httpStatus?: number; socket?: Socket; dnsSocket?: Socket }
+  tlsVerified?: boolean; tlsVersion?: string; httpStatus?: number; stage?: string; interpretation?: Finding;
+  bodyBytes?: number; bodyReadMs?: number; bodyExpected?: number; socket?: Socket; dnsSocket?: Socket }
 type Path = { mode: Mode; ref?: string; resolver?: string }
 export type Report = { job: { jobId: string; phase: string }; path: Path; groupId: string; groupRevision: string; family: Family;
-  pathEvidence?: { host: { id: string }; generation?: string; scope: string; context?: string }; startedAt: string; results: Row[] }
+  pathEvidence?: { host: { id: string }; generation?: string; scope: string; context?: string }; startedAt: string; results: Row[]; findings?: GroupFinding[] }
 export type Options = { outbounds: string[]; resolvers: string[]; ingresses?: string[]; unavailable: Partial<Record<Mode, string>> }
-type SuiteRequest = { groupId?: string; all?: boolean; catalogRevision: string; path: Path; family: Family; cells?: Cell[] }
+type SuiteRequest = { groupId?: string; all?: boolean; catalogRevision: string; path: Path; family: Family; cells?: Cell[]; depth?: Depth }
 export type SuiteEvent = { kind: 'started' | 'progress' | 'group' | 'finished'; job: {
     operationId: string; phase: string; problem?: { code: string }; cancelSupported: boolean
   }; progress: { groupsDone: number; totalGroups: number; probesDone: number; totalProbes: number };
-  group?: { id: string; completed: number; total: number }; rows?: Row[]; report?: Omit<Report, 'results'> }
+  group?: { id: string; completed: number; total: number }; rows?: Row[]; findings?: GroupFinding[]; report?: Omit<Report, 'results'> }
 interface Envelope<T> { success: boolean; msg: string; obj: T }
 const base = 'api/components/blockcheck'
 const catalogBytes = 128 * 1024
@@ -88,7 +92,7 @@ export async function openTransfer(file: File): Promise<Transfer> {
 }
 
 const comparisonStatuses = new Set(['ok', 'dns_response', 'http_response', 'resolution_failed', 'timeout', 'connection_refused',
-  'connection_failed', 'tls_failed', 'certificate_invalid', 'protocol_error'])
+  'connection_failed', 'connection_reset', 'stream_closed', 'tls_failed', 'certificate_invalid', 'protocol_error'])
 
 export function comparable(a: Report, b: Report): boolean {
   if (!a.pathEvidence || !b.pathEvidence || a.pathEvidence.host.id !== b.pathEvidence.host.id || a.groupId !== b.groupId ||

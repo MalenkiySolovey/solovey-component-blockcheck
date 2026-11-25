@@ -15,6 +15,7 @@
         :label="t('blockcheck.host')" density="compact" hide-details readonly />
       <v-select v-model="mode" :items="modes" :label="t('blockcheck.path')" :disabled="running" density="compact" hide-details />
       <v-select v-model="family" :items="families" :label="t('blockcheck.family')" :disabled="running" density="compact" hide-details />
+      <v-select v-model="depth" :items="depths" :label="t('blockcheck.depth')" :disabled="running" density="compact" hide-details />
       <v-select v-if="mode === 'PANEL' && options?.ingresses?.length" v-model="ingress" :items="options.ingresses"
         :label="t('blockcheck.ingress')" :disabled="running" density="compact" hide-details />
       <template v-if="mode === 'OUTBOUND'">
@@ -114,13 +115,24 @@
           <dt>{{ t('blockcheck.revision') }}</dt><dd>{{ visibleReport.pathEvidence?.generation ?? t('blockcheck.unknown') }}</dd>
         </dl>
       </details>
+      <ul v-if="visibleReport.findings?.length" class="finding-list mb-3">
+        <li v-for="finding in visibleReport.findings" :key="`${finding.target}:${finding.code}`">
+          <strong>{{ targetLabel(finding.target) }}</strong> · {{ findingText(finding) }}
+          <div class="text-caption text-medium-emphasis">{{ findingDetails(finding) }}</div>
+        </li>
+      </ul>
       <v-table class="probe-table" density="compact">
         <thead><tr><th scope="col">{{ t('blockcheck.target') }}</th><th scope="col">{{ t('blockcheck.result') }}</th>
           <th v-if="comparison" scope="col">{{ t(`blockcheck.${comparison.report.path.mode}`) }}</th><th scope="col">{{ t('blockcheck.observed') }}</th></tr></thead>
         <tbody>
           <tr v-for="(row, index) in visibleReport.results" :key="cellKey(row.target, row.probe)">
-            <th scope="row" class="text-start">{{ groupHistory[runIndex]?.labels[row.target] ?? `#${row.target + 1}` }} · {{ row.probe.toUpperCase() }}</th>
-            <td>{{ observation(row) }}<div class="text-caption text-medium-emphasis">{{ row.elapsedMs }} ms</div></td>
+            <th scope="row" class="text-start">{{ targetLabel(row.target) }} · {{ row.probe.toUpperCase() }}</th>
+            <td>{{ observation(row) }}<div class="text-caption text-medium-emphasis">{{ row.elapsedMs }} ms</div>
+              <details v-if="row.interpretation" class="mt-1 text-caption">
+                <summary>{{ findingText(row.interpretation) }}</summary>
+                {{ findingDetails(row.interpretation) }}
+              </details>
+            </td>
             <td v-if="comparison">{{ observation(comparison.report.results[index]) }}<div class="text-caption text-medium-emphasis">{{ comparison.report.results[index].elapsedMs }} ms</div></td>
             <td class="text-caption">{{ rowFacts(row) }}</td>
           </tr>
@@ -181,7 +193,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { cancelSuite, comparable, load, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Family, type Group, type Mode, type Options, type Report, type Row, type SuiteEvent, type Target } from './api'
+import { cancelSuite, comparable, load, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type Mode, type Options, type Report, type Row, type SuiteEvent, type Target } from './api'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -193,6 +205,7 @@ const selected = ref('')
 const expanded = ref(false)
 const mode = ref<Mode>('PANEL')
 const family = ref<Family>('any')
+const depth = ref<Depth>('quick')
 const ingress = ref('')
 const outbound = ref('')
 const resolver = ref<string | null>(null)
@@ -224,6 +237,7 @@ const pathKeys: Mode[] = ['PANEL', 'HOST_BASELINE', 'OUTBOUND']
 const familyKeys: Family[] = ['any', 'ipv4', 'ipv6']
 const modes = computed(() => pathKeys.map(value => ({ value, title: t(`blockcheck.${value}`) })))
 const families = computed(() => familyKeys.map(value => ({ value, title: t(`blockcheck.${value}`) })))
+const depths = computed(() => (['quick', 'deep'] as const).map(value => ({ value, title: t(`blockcheck.${value}`) })))
 const groupIndex = computed(() => catalog.value?.groups.findIndex(row => row.id === selected.value) ?? -1)
 const group = computed(() => catalog.value?.groups[groupIndex.value])
 const activeGroups = computed(() => catalog.value?.groups.filter(row => !row.disabled).length ?? 0)
@@ -259,7 +273,8 @@ function groupSummary(id: string) {
   if (!report) return { label: t('blockcheck.notRun'), color: undefined }
   if (report.job.phase !== 'COMPLETED') return { label: t(`blockcheck.phase.${report.job.phase}`), color: 'warning' }
   const positive = report.results.filter(row => row.status === 'ok' || row.status === 'dns_response' && !!row.answerCount && !row.dnsRcode ||
-    row.status === 'http_response' && (row.httpStatus ?? 0) >= 200 && (row.httpStatus ?? 0) < 300).length
+    row.status === 'http_response' && (row.httpStatus ?? 0) >= 200 && (row.httpStatus ?? 0) < 300 &&
+      (!['http-data', 'https-data'].includes(row.probe) || !!row.bodyBytes)).length
   return { label: t('blockcheck.summary', { positive, count: report.results.length }), color: positive === report.results.length ? 'success' : 'warning' }
 }
 
@@ -275,9 +290,17 @@ function observation(row: Row) {
   return text
 }
 function rowFacts(row: Row) {
-  return [row.reason && reason(row.reason), row.dnsContext, row.dnsTransport,
+  return [row.stage && t(`blockcheck.stage.${row.stage}`), row.reason && reason(row.reason), row.dnsContext, row.dnsTransport,
     row.dnsConfiguredTransport && t('blockcheck.configuredTransport', { transport: row.dnsConfiguredTransport }),
-    row.addressFamily, row.socket?.egress].filter(Boolean).join(' · ') || t('blockcheck.unknown')
+    row.addressFamily, row.tlsVersion, row.stage === 'transfer' && t('blockcheck.transferSample', {
+      bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'), ms: row.bodyReadMs ?? 0,
+    }), row.socket?.egress].filter(Boolean).join(' · ') || t('blockcheck.unknown')
+}
+const targetLabel = (index: number) => groupHistory.value[runIndex.value]?.labels[index] ?? `#${index + 1}`
+const findingText = (finding: Finding) => t(`blockcheck.finding.${finding.code}`)
+function findingDetails(finding: Finding) {
+  const alternatives = finding.alternatives?.map(code => t(`blockcheck.alternative.${code}`)).join('; ')
+  return [t(`blockcheck.confidence.${finding.confidence}`), alternatives && t('blockcheck.alternatives', { alternatives })].filter(Boolean).join(' · ')
 }
 function updateCatalog(value: Catalog, preferred = selected.value) {
   catalog.value = value
@@ -388,6 +411,7 @@ async function start(groupId?: string) {
   runController = request
   const labels = new Map(catalog.value.groups.map(row => [row.id, row.targets.map(target => target.name)]))
   const partial = new Map<string, Row[]>()
+  const findings = new Map<string, GroupFinding[]>()
   const selection = groupId === selected.value && expanded.value && enabled.value.size !== cells.value.length
     ? cells.value.filter(row => enabled.value.has(cellKey(row.target, row.probe))) : undefined
   running.value = true; stopping.value = false; live.value = undefined; notice.value = ''; error.value = ''
@@ -395,21 +419,27 @@ async function start(groupId?: string) {
   try {
     await streamSuite({ groupId, all: !groupId, catalogRevision: catalog.value.revision,
       path: { mode: mode.value, ref: pathRef.value, resolver: mode.value === 'OUTBOUND' ? resolver.value ?? undefined : undefined },
-      family: family.value, cells: selection }, request.signal, event => {
+      family: family.value, depth: depth.value, cells: selection }, request.signal, event => {
       if (runController !== request || request.signal.aborted) return
       const id = event.group?.id
       // Drop batch payloads from the last-event slot; rows live with their group.
-      live.value = { ...event, rows: undefined, report: undefined }
+      live.value = { ...event, rows: undefined, findings: undefined, report: undefined }
       if (id && event.rows) {
         const rows = partial.get(id) ?? []
         rows.push(...event.rows)
         partial.set(id, rows)
       }
+      if (id && event.findings) {
+        const items = findings.get(id) ?? []
+        items.push(...event.findings)
+        findings.set(id, items)
+      }
       if (id && event.report) {
-        const report: Report = { ...event.report, results: partial.get(id) ?? [] }
+        const report: Report = { ...event.report, results: partial.get(id) ?? [], findings: findings.get(id) }
         const entry = { report, labels: labels.get(id) ?? [] }
         history.value.set(id, [entry, ...(history.value.get(id) ?? [])].slice(0, 3))
         partial.delete(id)
+        findings.delete(id)
         if (id === selected.value) { runIndex.value = 0; compareIndex.value = null }
       }
       if (event.kind === 'finished') terminal = event
@@ -475,4 +505,5 @@ onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
 .target-editor { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .detail-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; }
 .detail-list dd { overflow-wrap: anywhere; }
+.finding-list { padding-inline-start: 1.25rem; overflow-wrap: anywhere; }
 </style>
