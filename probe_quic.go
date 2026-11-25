@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/sagernet/quic-go"
 	"github.com/sagernet/quic-go/http3"
@@ -48,8 +49,11 @@ func probeQUIC(ctx context.Context, row *Result, conn net.Conn, tlsConfig *tls.C
 	// NewClientConn performs a single HTTP/3 request on the same authenticated
 	// session; unlike a client it does not follow redirects.
 	target := &url.URL{Scheme: "https", Host: net.JoinHostPort(tlsConfig.ServerName, "443"), Path: "/"}
-	request := (&http.Request{Method: http.MethodHead, URL: target, Header: http.Header{}}).WithContext(ctx)
-	response, err := transport.NewClientConn(session).RoundTrip(request)
+	client := transport.NewClientConn(session)
+	timing := responseStart{started: time.Now()}
+	request := (&http.Request{Method: http.MethodHead, URL: target, Header: http.Header{}}).WithContext(timing.trace(ctx))
+	response, err := client.RoundTrip(request)
+	row.HTTPResponseStartMS = timing.milliseconds()
 	if err != nil {
 		row.Status = classify(cmp.Or(ctx.Err(), err), ProtocolError)
 		return
@@ -59,5 +63,5 @@ func probeQUIC(ctx context.Context, row *Result, conn net.Conn, tlsConfig *tls.C
 		row.Status = ProtocolError
 		return
 	}
-	row.HTTPStatus, row.Status = response.StatusCode, HTTPResponse
+	row.HTTPStatus, row.Status, row.HTTPProtocol = response.StatusCode, HTTPResponse, "HTTP/3"
 }

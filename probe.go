@@ -250,12 +250,14 @@ func probeHTTP(row *Result, host string, stream io.ReadWriter) {
 		request.Method = http.MethodGet
 		request.Header.Set("Accept-Encoding", "identity")
 	}
+	timing := responseStart{started: time.Now()}
 	if err := request.Write(stream); err != nil {
 		row.Status = classify(err, ProtocolError)
 		return
 	}
 	// All response heads share a budget. Never follow redirects or export headers.
-	raw := &io.LimitedReader{R: stream, N: maxHeaderBytes}
+	raw := &io.LimitedReader{R: responseStartReader{Reader: stream, timing: &timing}, N: maxHeaderBytes}
+	defer func() { row.HTTPResponseStartMS = timing.milliseconds() }()
 	reader := bufio.NewReader(raw)
 	for range 4 {
 		response, err := http.ReadResponse(reader, request)

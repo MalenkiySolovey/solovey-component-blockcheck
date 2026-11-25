@@ -175,6 +175,7 @@ type Result struct {
 	TLSProfile             string           `json:"tlsProfile,omitempty"`
 	HTTPStatus             int              `json:"httpStatus,omitempty"`
 	HTTPProtocol           string           `json:"httpProtocol,omitempty"`
+	HTTPResponseStartMS    *int64           `json:"httpResponseStartMs,omitempty"`
 	BodyBytes              int64            `json:"bodyBytes,omitempty"`
 	BodyReadMS             int64            `json:"bodyReadMs,omitempty"`
 	BodyExpected           int64            `json:"bodyExpected,omitempty"`

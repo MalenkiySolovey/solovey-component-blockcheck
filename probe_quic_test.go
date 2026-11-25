@@ -71,6 +71,9 @@ func TestQUICAndHTTP3ObserveSeparateStages(t *testing.T) {
 			if row.Stage != tc.stage || row.Status != tc.status || row.HTTPStatus != tc.response || row.TLSVerified != tc.verified || requests.Load()-before != tc.requests {
 				t.Fatalf("unexpected QUIC observation: %+v (requests: %d)", row, requests.Load()-before)
 			}
+			if (row.HTTPResponseStartMS != nil) != (tc.response != 0) || (row.HTTPProtocol == "HTTP/3") != (tc.response != 0) {
+				t.Fatalf("incorrect HTTP/3 response observation: %+v", row)
+			}
 			if tc.verified && row.TLSVersion != "TLS 1.3" {
 				t.Fatalf("wrong QUIC TLS version: %q", row.TLSVersion)
 			}

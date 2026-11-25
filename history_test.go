@@ -16,11 +16,13 @@ func TestHistoryCaptureIsBoundedAndDoesNotMutateLiveEvidence(t *testing.T) {
 		{ID: "skip", Disabled: true}}}
 	capture := NewHistoryCapture(catalog, SuiteRequest{All: true, RunRequest: RunRequest{Family: IPv4}})
 	capture.Observe(SuiteEvent{Kind: "started", StartedAt: &start, Job: operationref.Job{Reference: operationref.NewReference(ID, "catalog", "run-fixture")}})
-	group := GroupProgress{ID: "voice", Completed: 1, Total: 2}
+	group := GroupProgress{ID: "voice", Completed: 2, Total: 3}
 	row := Result{Cell: Cell{Target: 0, Probe: HTTPS}, TargetRef: "target", Stage: StageTLS, Status: ConnectionReset,
 		AttemptedAddress: "9.9.9.9", Socket: &SocketEvidence{Egress: "snell", Interface: "fixture0"},
 		DNSSocket: &SocketEvidence{Egress: "resolver-outbound", Interface: "fixture1"}}
-	capture.Observe(SuiteEvent{Kind: "progress", Group: &group, Rows: []Result{row}})
+	startMS := int64(0)
+	timed := Result{Cell: Cell{Target: 0, Probe: HTTP3}, TargetRef: "target", Stage: StageHTTP, Status: HTTPResponse, HTTPStatus: 204, HTTPResponseStartMS: &startMS}
+	capture.Observe(SuiteEvent{Kind: "progress", Group: &group, Rows: []Result{row, timed}})
 	capture.Observe(SuiteEvent{Kind: "group", Group: &group, Report: &Report{GroupID: "voice", StartedAt: start, FinishedAt: finish}})
 	run := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish, Job: operationref.Job{Phase: "CANCELED"}})
 	data, err := (History{}).WithRun(*run, finish)
@@ -35,11 +37,14 @@ func TestHistoryCaptureIsBoundedAndDoesNotMutateLiveEvidence(t *testing.T) {
 		t.Fatalf("bad history: %+v, %v", stored, err)
 	}
 	got := stored.Runs[0]
-	if got.Phase != "CANCELED" || got.Depth != Quick || got.Groups[0].Report.Results[0].Status != ConnectionReset || got.Groups[0].Targets[0].Role != "connection control" {
+	if got.Phase != "CANCELED" || got.Depth != Quick || len(got.Groups[0].Report.Results) != 2 || got.Groups[0].Report.Results[0].Status != ConnectionReset || got.Groups[0].Targets[0].Role != "connection control" {
 		t.Fatalf("lost partial evidence: %+v", got)
 	}
 	if stored := got.Groups[0].Report.Results[0]; stored.Socket.Egress != "snell" || stored.DNSSocket.Egress != "resolver-outbound" {
 		t.Fatalf("lost comparable socket evidence: %+v", stored)
+	}
+	if duration := got.Groups[0].Report.Results[1].HTTPResponseStartMS; duration == nil || *duration != 0 {
+		t.Fatal("history dropped an observed zero response-start duration")
 	}
 	if stripped := (Report{Results: []Result{row}}).Redacted(); stripped.Results[0].AttemptedAddress != "" {
 		t.Fatal("copy retained the attempted address")

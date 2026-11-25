@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Report, Row } from './api'
-import { connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults } from './serviceResults'
+import { addressResults, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults } from './serviceResults'
 
 const pass: Row = { target: 0, targetRef: 'fixture', probe: 'https', stage: 'http', status: 'http_response', httpStatus: 204,
   tlsVersion: 'TLS 1.3', tlsVerified: true, dnsContext: 'core-policy', answerCount: 1, elapsedMs: 2 }
@@ -39,6 +39,29 @@ describe('service availability', () => {
 })
 
 describe('protocol observations', () => {
+  it('keeps a successful HTTP exchange and a TLS reset on separate attempted addresses', () => {
+    const dnsRow: Row = { ...pass, probe: 'dns', stage: 'dns', status: 'dns_response', httpStatus: undefined, tlsVersion: undefined, tlsVerified: undefined }
+    const targets = addressResults([dnsRow, { ...pass, attemptedAddress: '198.51.100.4' },
+      { ...failed, probe: 'tls13', attemptedAddress: '2001:db8::4' },
+      { ...tcp, status: 'unobservable', attemptedAddress: '198.51.100.4' }])
+    expect(targets.map(target => target.address)).toEqual(['198.51.100.4', '2001:db8::4', undefined])
+    expect(targets[0].stages).toEqual([
+      { stage: 'dns', state: 'available', observed: true }, { stage: 'tcp', state: 'unconfirmed', observed: true },
+      { stage: 'tls', state: 'available', observed: true }, { stage: 'certificate', state: 'available', observed: true },
+      { stage: 'http', state: 'available', observed: true },
+    ])
+    expect(targets[1].stages).toEqual([{ stage: 'tls', state: 'unavailable', observed: true }])
+    expect(targets[2].rows).toEqual([dnsRow])
+    expect(targets[2].stages).toEqual([{ stage: 'dns', state: 'available', observed: true }])
+  })
+
+  it('does not reconstruct an address from retained report family or DNS metadata', () => {
+    const result = addressResults([{ ...pass, addressFamily: 'ipv4' }, { ...failed, addressFamily: 'ipv6' }])
+    expect(result.map(attempt => attempt.address)).toEqual([undefined])
+    expect(result[0].rows).toHaveLength(2)
+    expect(result[0].stages.map(step => step.stage)).not.toContain('quic')
+  })
+
   it('shows measured DNS, TLS, certificate and HTTP, but not a synthetic TCP pass', () => {
     const steps = Object.fromEntries(connectionStages([pass, { ...tcp, status: 'unobservable', reason: 'proxy_connect_not_endpoint_proof' }]).map(step => [step.stage, step.state]))
     expect(steps).toMatchObject({ dns: 'available', tcp: 'unconfirmed', tls: 'available', certificate: 'available', http: 'available', quic: 'unconfirmed' })
