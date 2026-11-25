@@ -53,6 +53,7 @@ export default { blockcheck: {
     dns_transport_not_available: 'This transport is not available on the selected DNS server.',
     dns_transport_not_observed: 'The Core did not report the transport used on the wire.',
     proxy_connect_not_endpoint_proof: 'The proxy accepted CONNECT. The endpoint TCP handshake was not observed.',
+    proxy_endpoint_tcp_not_observed: 'A proxy stream opened. The endpoint TCP handshake was not observed.',
     probe_not_available_on_path: 'The selected path does not expose this probe.', target_policy_rejected: 'The destination did not pass the host address policy.',
     dns_or_literal_address_not_public: 'The target contains a non-public or disallowed address.',
     blockcheck_stale_catalog: 'The catalog changed. Reload before retrying.', blockcheck_busy: 'Another BlockCheck run is active.',

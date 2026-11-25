@@ -74,6 +74,8 @@ type SocketEvidence struct {
 	Egress        string `json:"egress,omitempty"`
 	OutsidePanel  bool   `json:"outsidePanel,omitempty"`
 	ProxyAccepted bool   `json:"proxyAccepted,omitempty"`
+	// A lazy proxy stream can be returned before an endpoint request is sent.
+	ProxyTransportOnly bool `json:"proxyTransportOnly,omitempty"`
 }
 
 type Resolution struct {

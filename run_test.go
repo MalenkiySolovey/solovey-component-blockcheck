@@ -146,6 +146,36 @@ func TestConfiguredDNSAndProxyAcknowledgementAreNotEndpointEvidence(t *testing.T
 	}
 }
 
+func TestProxyStreamCanObserveHTTPWithoutProvingEndpointTCP(t *testing.T) {
+	c, cat, req, path := fixture(t, Outbound, TCP, HTTP)
+	path.DialTCP = func(_ context.Context, target netip.AddrPort) (net.Conn, SocketEvidence, error) {
+		client, proxy := net.Pipe()
+		if target.Port() == 80 {
+			go func() {
+				defer proxy.Close()
+				request, err := http.ReadRequest(bufio.NewReader(proxy))
+				if err != nil || request.Method != http.MethodHead || request.Host != "fixture.example" {
+					t.Error("unexpected HTTP request")
+					return
+				}
+				_, _ = io.WriteString(proxy, "HTTP/1.1 204 No Content\r\n\r\n")
+			}()
+		} else {
+			_ = proxy.Close()
+		}
+		return client, SocketEvidence{ProxyTransportOnly: true}, nil
+	}
+	rows := runFixture(t, c, cat, req, path).Results
+	tcp, httpRow := rows[0], rows[1]
+	if tcp.Status != Unobservable || tcp.Reason != "proxy_endpoint_tcp_not_observed" || tcp.Proof != nil ||
+		tcp.Socket == nil || !tcp.Socket.ProxyTransportOnly || tcp.Socket.ProxyAccepted {
+		t.Fatalf("lazy proxy dial presented as an endpoint or CONNECT observation: %+v", tcp)
+	}
+	if httpRow.Status != HTTPResponse || httpRow.HTTPStatus != 204 {
+		t.Fatalf("actual HTTP response through lazy proxy stream lost: %+v", httpRow)
+	}
+}
+
 func TestHTTPReportsFinalStatusAndNeverFollowsRedirect(t *testing.T) {
 	for _, tc := range []struct {
 		name, head string
