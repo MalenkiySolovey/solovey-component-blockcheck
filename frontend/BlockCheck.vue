@@ -19,6 +19,11 @@
       </template>
     </div>
     <p v-if="mode === 'OUTBOUND' && catalog" class="text-caption text-medium-emphasis mt-2">{{ t('blockcheck.dnsHint') }}</p>
+    <div v-if="zapretContext" class="d-flex flex-wrap align-center ga-1 mt-2 text-caption">
+      {{ t('blockcheck.zapretContext', { strategy: zapretContext }) }}
+      <v-btn v-if="router.hasRoute('component.zapret')" :to="{ name: 'component.zapret', params: { hostId }, query: { binding: outbound } }"
+        variant="text" size="small" append-icon="mdi-open-in-new">{{ t('blockcheck.zapretEvidence') }}</v-btn>
+    </div>
     <v-alert v-if="pathBlocked" type="info" variant="tonal" density="compact" class="my-3">{{ reason(pathBlocked) }}</v-alert>
 
     <div v-if="catalog" class="d-flex align-center flex-wrap ga-2 my-3">
@@ -86,7 +91,7 @@
             <th scope="row" class="text-start">{{ history[runIndex]?.labels[row.target] ?? `#${row.target + 1}` }} · {{ row.probe.toUpperCase() }}</th>
             <td>{{ observation(row) }}<div class="text-caption text-medium-emphasis">{{ row.elapsedMs }} ms</div></td>
             <td v-if="comparison">{{ observation(comparison.report.results[index]) }}<div class="text-caption text-medium-emphasis">{{ comparison.report.results[index].elapsedMs }} ms</div></td>
-            <td class="text-caption">{{ row.reason ? reason(row.reason) : [row.dnsContext, row.dnsTransport, row.addressFamily, row.socket?.egress].filter(Boolean).join(' · ') || t('blockcheck.unknown') }}</td>
+            <td class="text-caption">{{ rowFacts(row) }}</td>
           </tr>
         </tbody>
       </v-table>
@@ -144,11 +149,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { comparable, load, openTransfer, redacted, run, save, transferSchema, type Catalog, type Family, type Group, type Mode, type Options, type Report, type Row, type Target } from './api'
 
 const { t, te } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const hostId = computed(() => typeof route.params.hostId === 'string' ? route.params.hostId : 'local')
 const options = ref<Options>()
 const catalog = ref<Catalog>()
@@ -185,7 +191,12 @@ const groupIndex = computed(() => catalog.value?.groups.findIndex(row => row.id 
 const group = computed(() => catalog.value?.groups[groupIndex.value])
 const cellKey = (index: number, probe: string) => `${index}:${probe}`
 const cells = computed(() => group.value?.targets.flatMap((target, index) => target.probes.map(probe => ({ target: index, probe }))) ?? [])
-const pathBlocked = computed(() => options.value?.unavailable[mode.value])
+const pathBlocked = computed(() => options.value?.unavailable[mode.value] ?? (options.value && mode.value === 'OUTBOUND'
+  ? outbound.value && !options.value.outbounds.includes(outbound.value) ? 'outbound_not_available'
+    : resolver.value && !options.value.resolvers.includes(resolver.value) ? 'dns_transport_not_available' : undefined
+  : undefined))
+const zapretContext = computed(() => mode.value === 'OUTBOUND' && outbound.value && outbound.value === route.query.outbound &&
+  typeof route.query.zapret === 'string' && route.query.zapret.length <= 128 ? route.query.zapret : '')
 const canStart = computed(() => !loading.value && !busy.value && !pathBlocked.value && hostId.value === 'local' &&
   mode.value === 'OUTBOUND' && !!options.value?.outbounds.includes(outbound.value) && !!group.value && enabled.value.length > 0)
 const visibleReport = computed(() => history.value[runIndex.value]?.report)
@@ -204,6 +215,11 @@ function observation(row: Row) {
   if (row.httpStatus) return `${text} ${row.httpStatus}`
   if (row.dnsRcode !== undefined) return `${text} · RCODE ${row.dnsRcode} · ${row.answerCount ?? 0}`
   return text
+}
+function rowFacts(row: Row) {
+  return [row.reason && reason(row.reason), row.dnsContext, row.dnsTransport,
+    row.dnsConfiguredTransport && t('blockcheck.configuredTransport', { transport: row.dnsConfiguredTransport }),
+    row.addressFamily, row.socket?.egress].filter(Boolean).join(' · ') || t('blockcheck.unknown')
 }
 function updateCatalog(value: Catalog, preferred = selected.value) {
   catalog.value = value
