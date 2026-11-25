@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	utls "github.com/metacubex/utls"
 	"golang.org/x/net/http2"
@@ -68,7 +69,9 @@ func probeChromeHTTP2(ctx context.Context, row *Result, conn net.Conn, host stri
 		host = "[" + host + "]"
 	}
 	request := &http.Request{Method: http.MethodHead, URL: &url.URL{Scheme: "https", Host: host, Path: "/"}}
-	response, err := client.RoundTrip(request.WithContext(ctx))
+	timing := responseStart{started: time.Now()}
+	response, err := client.RoundTrip(request.WithContext(timing.trace(ctx)))
+	row.HTTPResponseStartMS = timing.milliseconds()
 	if err != nil {
 		row.Status = classify(err, ProtocolError)
 		return

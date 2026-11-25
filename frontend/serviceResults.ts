@@ -77,6 +77,29 @@ export function connectionStages(rows: readonly Row[]) {
   })
 }
 
+function requestedStage(probe: string): Stage | undefined {
+  if (dns.has(probe)) return 'dns'
+  if (tls.has(probe)) return 'tls'
+  if (web.has(probe)) return 'http'
+  if (transfer.has(probe)) return 'transfer'
+  if (probe === 'tcp' || probe === 'quic' || probe === 'stun') return probe
+}
+
+export function addressResults(rows: readonly Row[]) {
+  const byAddress = new Map<string | undefined, Row[]>()
+  for (const row of rows) {
+    const address = row.attemptedAddress || undefined
+    const group = byAddress.get(address) ?? []
+    group.push(row)
+    byAddress.set(address, group)
+  }
+  return Array.from(byAddress, ([address, group]) => {
+    const requested = new Set(group.map(row => requestedStage(row.probe)))
+    const stages = connectionStages(group).filter(step => step.observed || requested.has(step.stage))
+    return { address, rows: group, stages }
+  }).sort((a, b) => Number(!a.address) - Number(!b.address))
+}
+
 export const protocolKeys = ['dns', 'tcp', 'tls', 'http', 'chrome', 'quic', 'transfer', 'stun', 'icmp'] as const
 type Protocol = typeof protocolKeys[number]
 

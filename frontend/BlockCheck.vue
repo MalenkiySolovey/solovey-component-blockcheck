@@ -176,22 +176,26 @@
           <span v-if="target.meta.role" class="text-caption text-medium-emphasis">{{ target.meta.role }}</span>
           <span class="result-state text-caption" :data-availability="target.state">{{ availability(target.state) }}</span>
         </summary>
-        <template v-if="target.rows.length">
-          <ol class="connection-stages my-2" :aria-label="t('blockcheck.connectionStages')">
-            <li v-for="step in target.stages" :key="step.stage" :data-stage="step.stage" :data-availability="step.state">
+        <section v-for="attempt in target.addresses" :key="attempt.address ?? ''" class="attempt-scope mb-3">
+          <h4 class="d-flex align-center ga-2 text-body-2 font-weight-medium">
+            <v-icon :icon="attempt.address ? 'lucide:network' : 'lucide:info'" size="16" aria-hidden="true" />
+            {{ attempt.address ? t('blockcheck.attemptedAddress', { address: attempt.address }) : t('blockcheck.noRecordedAddress') }}
+          </h4>
+          <ol v-if="attempt.stages.length" class="connection-stages my-2" :aria-label="t('blockcheck.connectionStages')">
+            <li v-for="step in attempt.stages" :key="step.stage" :data-stage="step.stage" :data-availability="step.state">
               <v-icon :icon="availabilityIcon[step.state]" size="16" aria-hidden="true" />
               <strong class="text-caption">{{ t('blockcheck.stage.' + step.stage) }}</strong>
               <span class="text-caption">{{ step.observed ? availability(step.state) : t('blockcheck.unknown') }}</span>
             </li>
           </ol>
           <ul class="list-unstyled probe-evidence" :aria-label="t('blockcheck.observed')">
-            <li v-for="row in target.rows" :key="row.probe" class="py-2">
+            <li v-for="row in attempt.rows" :key="row.probe" class="py-2">
               <div class="d-flex flex-wrap align-baseline ga-2">
                 <strong>{{ probeLabel(row.probe) }}</strong>
                 <span class="result-state" :data-availability="probeAvailability(row)">{{ observation(row) }}</span>
                 <span class="text-caption text-medium-emphasis">{{ duration(row.elapsedMs) }}</span>
               </div>
-              <div class="text-caption text-medium-emphasis">{{ rowFacts(row) }}</div>
+              <div class="text-caption text-medium-emphasis">{{ rowFacts(row, false) }}</div>
               <div v-if="row.interpretation" class="mt-1 text-caption">
                 <strong>{{ findingText(row.interpretation) }}</strong><div>{{ findingDetails(row.interpretation) }}</div>
               </div>
@@ -208,8 +212,8 @@
               </template>
             </li>
           </ul>
-        </template>
-        <p v-else class="text-caption text-medium-emphasis mb-2">{{ t('blockcheck.unknown') }}</p>
+        </section>
+        <p v-if="!target.addresses.length" class="text-caption text-medium-emphasis mb-2">{{ t('blockcheck.unknown') }}</p>
       </details>
     </section>
 
@@ -269,7 +273,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
 import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
-import { availabilityColor, availabilityStates, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults, type Availability } from './serviceResults'
+import { addressResults, availabilityColor, availabilityStates, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults, type Availability } from './serviceResults'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -386,7 +390,7 @@ const serviceCards = computed(() => new Map((catalog.value?.groups ?? []).flatMa
 const visibleTargets = computed(() => {
   const entry = visibleEntry.value
   return entry ? targetResults(entry.targets.length, entry.report.results).map(target => ({
-    ...target, meta: entry.targets[target.index], stages: connectionStages(target.rows),
+    ...target, meta: entry.targets[target.index], addresses: addressResults(target.rows),
   })) : []
 })
 const aggregate = computed(() => {
@@ -460,12 +464,13 @@ function reportDuration(report: Report) {
   return Number.isFinite(elapsed) && elapsed >= 0 ? duration(elapsed) : undefined
 }
 const probeLabel = (probe: string) => te('blockcheck.probe.' + probe) ? t('blockcheck.probe.' + probe) : probe.toUpperCase()
-function rowFacts(row: Row) {
+function rowFacts(row: Row, includeAddress = true) {
   return [row.stage && t(`blockcheck.stage.${row.stage}`), row.reason && reason(row.reason), row.dnsContext, row.dnsTransport,
     row.dnsConfiguredTransport && t('blockcheck.configuredTransport', { transport: row.dnsConfiguredTransport }),
-    row.attemptedAddress && t('blockcheck.attemptedAddress', { address: row.attemptedAddress }),
+    includeAddress && row.attemptedAddress && t('blockcheck.attemptedAddress', { address: row.attemptedAddress }),
     row.addressFamily && t('blockcheck.' + row.addressFamily), row.tlsVersion, row.tlsVerified && t('blockcheck.verifiedCertificate'),
     row.tlsProfile === 'chrome-133' && t('blockcheck.tlsProfile.chrome-133'), row.httpProtocol,
+    row.httpResponseStartMs !== undefined && t('blockcheck.httpResponseStart', { duration: duration(row.httpResponseStartMs) }),
     row.stage === 'transfer' && t('blockcheck.transferSample', {
       bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'), ms: row.bodyReadMs ?? 0,
     }), row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
@@ -745,7 +750,8 @@ onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
 .protocol-results li { min-width: 0; }
 .target-result { border-block-start: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-wrap: anywhere; }
 .target-result > summary { cursor: pointer; padding-block: 10px; }
-.target-result > summary > span { margin-inline-end: 8px; }
+.target-result > summary > span { display: inline-block; margin-inline-end: 8px; max-inline-size: 100%; }
+.attempt-scope + .attempt-scope { border-block-start: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); padding-block-start: 12px; }
 .connection-stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr)); gap: 6px 10px; }
 .connection-stages li { display: grid; gap: 3px; justify-items: start; border-inline-start: 2px solid var(--result-accent, currentColor); padding-inline-start: 8px; }
 .probe-table :deep(th), .probe-table :deep(td) { overflow-wrap: anywhere; }

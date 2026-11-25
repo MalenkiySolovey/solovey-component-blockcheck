@@ -59,9 +59,13 @@ No resolver is presumed authoritative and differences do not prove tampering.
 
 The shared service view distinguishes failure from an unobserved stage. A
 proxy acknowledgement is not endpoint TCP evidence. The active administrator
-can see the admitted address actually tried, not every DNS answer or every
-server behind a name. Raw responses, credentials and packet content are never
-retained. Exports remove attempted addresses, path context and egress details.
+can see stages and probes grouped by the admitted address actually tried, not
+every DNS answer or every server behind a name. The time to HTTP response start
+is separate from full probe and transfer duration. HTTP/1 observes the first
+response data; HTTP/2 and HTTP/3 use their transport's first-response event.
+If no event is observed the timing is absent. Raw responses, credentials and
+packet content are never retained. Exports remove attempted addresses, path
+context and egress details.
 
 The Host adapter retains recent manual runs in its existing component-owned
 settings store (14 days, at most 512 KiB). It keeps whole group reports or notes

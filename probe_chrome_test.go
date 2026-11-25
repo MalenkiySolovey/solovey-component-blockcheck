@@ -79,7 +79,7 @@ func TestChromeProfileAndProtocolOnWire(t *testing.T) {
 				t.Fatal("no ClientHello observed")
 			}
 			if tc.want == CertificateInvalid {
-				if row.Stage != StageCertificate || row.TLSVerified || len(requests) != 0 {
+				if row.Stage != StageCertificate || row.TLSVerified || len(requests) != 0 || row.HTTPResponseStartMS != nil {
 					t.Fatalf("unverified peer reached HTTP: %+v", row)
 				}
 				return
@@ -89,7 +89,7 @@ func TestChromeProfileAndProtocolOnWire(t *testing.T) {
 			}
 			select {
 			case request := <-requests:
-				if tc.want == HTTPResponse && (request != "HEAD fixture.example/ "+tc.protocol || row.HTTPStatus != tc.status) {
+				if tc.want == HTTPResponse && (request != "HEAD fixture.example/ "+tc.protocol || row.HTTPStatus != tc.status || row.HTTPResponseStartMS == nil) {
 					t.Fatalf("unexpected admitted wire request %q, result %+v", request, row)
 				}
 			default:
