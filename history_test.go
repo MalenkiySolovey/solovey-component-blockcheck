@@ -73,3 +73,31 @@ func TestHistoryDropsOversizeGroupAsAUnitAndPrunesOldRuns(t *testing.T) {
 		t.Fatalf("wrong retention: %s (%v)", data, err)
 	}
 }
+
+func TestHistoryKeepsConfiguredSTUNPortsFromTheRunRevision(t *testing.T) {
+	start := time.Now().UTC().Truncate(time.Second)
+	finish := start.Add(time.Second)
+	group := Group{ID: "voice", Targets: []Target{
+		{Name: "Standard", Host: "voice.example", Role: "voice", Port: 3478},
+		{Name: "Alternate", Host: "voice.example", Role: "voice", Port: 19302},
+	}}
+	capture := NewHistoryCapture(Catalog{Groups: []Group{group}}, SuiteRequest{All: true})
+	capture.Observe(SuiteEvent{Kind: "started", StartedAt: &start, Job: operationref.Job{Reference: operationref.NewReference(ID, "catalog", "ports")}})
+	progress := GroupProgress{ID: group.ID}
+	capture.Observe(SuiteEvent{Kind: "progress", Group: &progress, Rows: []Result{{Cell: Cell{Target: 0, Probe: STUN}}, {Cell: Cell{Target: 1, Probe: STUN}}}})
+	capture.Observe(SuiteEvent{Kind: "group", Group: &progress, Report: &Report{GroupID: group.ID}})
+	run := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish})
+	group.Targets[0].Port = 19302 // subsequent catalog edit does not relabel an old result
+	data, err := (History{}).WithRun(*run, finish)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := DecodeHistory(data, finish)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := history.Runs[0].Groups[0].Targets
+	if len(targets) != 2 || targets[0].Port != 3478 || targets[1].Port != 19302 || targets[1].Name != "Alternate" {
+		t.Fatalf("wrong endpoint metadata: %+v", targets)
+	}
+}

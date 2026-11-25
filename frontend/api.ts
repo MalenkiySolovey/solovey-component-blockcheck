@@ -19,7 +19,8 @@ type Path = { mode: Mode; ref?: string; resolver?: string }
 export type Report = { job: { jobId: string; phase: string }; path: Path; groupId: string; groupRevision: string; family: Family;
   pathEvidence?: { host: { id: string }; generation?: string; scope: string; context?: string }; startedAt: string; finishedAt?: string; results: Row[]; findings?: GroupFinding[] }
 export type Options = { outbounds: string[]; resolvers: string[]; ingresses?: string[]; unavailable: Partial<Record<Mode, string>>; history?: boolean }
-export type HistoryEntry = { report: Report; targets: Pick<Target, 'name' | 'host' | 'role'>[] }
+export type TargetSnapshot = Pick<Target, 'name' | 'host' | 'role' | 'port'>
+export type HistoryEntry = { report: Report; targets: TargetSnapshot[] }
 export type SuiteProgress = { groupsDone: number; totalGroups: number; probesDone: number; totalProbes: number }
 export type HistoryRun = { id: string; all: boolean; groupIds: string[]; path: Path; family: Family; depth: Depth; startedAt: string;
   finishedAt: string; phase: string; progress: SuiteProgress; groups: HistoryEntry[]; omitted?: number }
