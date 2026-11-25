@@ -9,5 +9,10 @@
     "previousReference": {"tag": "22.0.0.0", "commit": "4934082a4069e2e66e35668cf6a03cf4c8de16d2"},
     "license": "MIT",
     "paths": ["src/blockcheck/quick_services.py", "src/blockcheck/data_lists.py", "src/blockcheck/ui/quick_service_cards.py", "src/blockcheck/page_run_workflow.py"]
+  },
+  "diagnosticReference": {
+    "commit": "47a1b0d7c4acb0426bdaf0c2f03a40df458a7e91",
+    "paths": ["src/utils/chrome_https.py", "src/diagnostics/protocol_probe.py"],
+    "scope": "Client-profile contrast as an observation, not a filtering claim. Independent implementation uses the existing pinned Go uTLS Chrome 133 profile and Go HTTP/2, not ZapretGUI code or browser settings."
   }
 }

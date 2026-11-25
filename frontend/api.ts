@@ -13,7 +13,7 @@ export type Finding = { code: string; confidence: 'observed' | 'indicative'; alt
 export type GroupFinding = Finding & { target: number; probes: string[] }
 export type Row = Cell & { targetRef: string; status: string; reason?: string; elapsedMs: number; addressFamily?: string; attemptedAddress?: string;
   dnsContext?: string; dnsTransport?: string; dnsConfiguredTransport?: string; dnsRcode?: number; answerCount?: number; answerDigest?: string;
-  tlsVerified?: boolean; tlsVersion?: string; httpStatus?: number; stage?: string; interpretation?: Finding;
+  tlsVerified?: boolean; tlsVersion?: string; tlsProfile?: string; httpStatus?: number; httpProtocol?: string; stage?: string; interpretation?: Finding;
   bodyBytes?: number; bodyReadMs?: number; bodyExpected?: number; socket?: Socket; dnsSocket?: Socket }
 type Path = { mode: Mode; ref?: string; resolver?: string }
 export type Report = { job: { jobId: string; phase: string }; path: Path; groupId: string; groupRevision: string; family: Family;

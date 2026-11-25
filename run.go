@@ -172,7 +172,9 @@ type Result struct {
 	AnswerDigest           string           `json:"answerDigest,omitempty"`
 	TLSVerified            bool             `json:"tlsVerified,omitempty"`
 	TLSVersion             string           `json:"tlsVersion,omitempty"`
+	TLSProfile             string           `json:"tlsProfile,omitempty"`
 	HTTPStatus             int              `json:"httpStatus,omitempty"`
+	HTTPProtocol           string           `json:"httpProtocol,omitempty"`
 	BodyBytes              int64            `json:"bodyBytes,omitempty"`
 	BodyReadMS             int64            `json:"bodyReadMs,omitempty"`
 	BodyExpected           int64            `json:"bodyExpected,omitempty"`

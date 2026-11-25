@@ -133,8 +133,8 @@
           <th scope="row" class="text-start"><div>{{ target.name }}</div><div class="text-caption text-medium-emphasis">{{ target.host }}</div></th>
           <td>{{ target.role }}</td>
           <td><div class="d-flex flex-wrap ga-2 py-1">
-            <v-checkbox-btn v-for="probe in target.probes" :key="probe" :label="probe.toUpperCase()" class="probe-choice" density="compact"
-              :aria-label="`${target.name}: ${probe.toUpperCase()}`" :model-value="enabled.has(cellKey(index, probe))"
+            <v-checkbox-btn v-for="probe in target.probes" :key="probe" :label="probeLabel(probe)" class="probe-choice" density="compact"
+              :aria-label="`${target.name}: ${probeLabel(probe)}`" :model-value="enabled.has(cellKey(index, probe))"
               :disabled="running" @update:model-value="toggle(index, probe, $event === true)" />
           </div></td>
         </tr>
@@ -233,7 +233,8 @@
               <v-text-field v-model="target.name" :label="t('blockcheck.name')" maxlength="96" density="compact" />
               <v-text-field v-model="target.host" :label="t('blockcheck.targetHost')" maxlength="253" density="compact" spellcheck="false" />
               <v-text-field v-model="target.role" :label="t('blockcheck.role')" maxlength="128" density="compact" />
-              <v-select v-model="target.probes" :items="catalog?.probes ?? []" :label="t('blockcheck.probes')" multiple density="compact" />
+              <v-select v-model="target.probes" :items="(catalog?.probes ?? []).map(value => ({ value, title: probeLabel(value) }))"
+                :label="t('blockcheck.probes')" multiple density="compact" />
               <v-select v-if="target.probes.includes('stun')" v-model="target.port" :items="[3478, 19302]" :label="t('blockcheck.port')" density="compact" />
             </div>
           </div>
@@ -464,6 +465,7 @@ function rowFacts(row: Row) {
     row.dnsConfiguredTransport && t('blockcheck.configuredTransport', { transport: row.dnsConfiguredTransport }),
     row.attemptedAddress && t('blockcheck.attemptedAddress', { address: row.attemptedAddress }),
     row.addressFamily && t('blockcheck.' + row.addressFamily), row.tlsVersion, row.tlsVerified && t('blockcheck.verifiedCertificate'),
+    row.tlsProfile === 'chrome-133' && t('blockcheck.tlsProfile.chrome-133'), row.httpProtocol,
     row.stage === 'transfer' && t('blockcheck.transferSample', {
       bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'), ms: row.bodyReadMs ?? 0,
     }), row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
