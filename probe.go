@@ -27,16 +27,20 @@ const maxTransferFramingBytes = 32 << 10
 func performProbe(ctx context.Context, row *Result, target Target, path Path, family Family, permit func(netip.Addr) bool) {
 	resolverProbe := DNS
 	needsSocket := false
+	dial := path.DialTCP
+	datagram := false
 	switch row.Probe {
 	case DNS, DNSUDP, DNSTCP, DoT, DoH, DoQ, DoH3:
 		resolverProbe = row.Probe
 	case TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPData, HTTPSData:
 		needsSocket = true
-		if path.DialTCP == nil {
-			row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
-			return
-		}
+	case QUIC, HTTP3:
+		needsSocket, datagram, dial = true, true, path.DialUDP
 	default:
+		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
+		return
+	}
+	if needsSocket && dial == nil {
 		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
 		return
 	}
@@ -137,7 +141,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		port = 80
 	}
 	row.Stage = StageTCP
-	conn, evidence, err := path.DialTCP(ctx, netip.AddrPortFrom(address, port))
+	if datagram {
+		row.Stage = StageUDP
+	}
+	conn, evidence, err := dial(ctx, netip.AddrPortFrom(address, port))
 	if conn != nil {
 		defer conn.Close()
 	}
@@ -156,6 +163,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		return
 	}
 	row.Socket = socketObservation(evidence)
+	if datagram {
+		probeQUIC(ctx, row, conn, quicTLSConfig(target.Host))
+		return
+	}
 	if row.Probe == TCP {
 		switch {
 		case evidence.ProxyTransportOnly:

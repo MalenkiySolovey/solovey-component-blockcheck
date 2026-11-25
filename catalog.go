@@ -35,12 +35,13 @@ const (
 	DoH       Probe = "doh"
 	DoQ       Probe = "doq"
 	DoH3      Probe = "doh3"
+	QUIC      Probe = "quic"
 	HTTP3     Probe = "http3"
 	STUN      Probe = "stun"
 	ICMP      Probe = "icmp"
 )
 
-var knownProbes = [...]Probe{DNS, TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPData, HTTPSData, DNSUDP, DNSTCP, DoT, DoH, DoQ, DoH3, HTTP3, STUN, ICMP}
+var knownProbes = [...]Probe{DNS, TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPData, HTTPSData, DNSUDP, DNSTCP, DoT, DoH, DoQ, DoH3, QUIC, HTTP3, STUN, ICMP}
 
 const (
 	CatalogSchema   = "solovey.blockcheck.groups/v1"

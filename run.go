@@ -92,6 +92,8 @@ type Path struct {
 	Current  func(context.Context) error
 	Resolve  func(context.Context, string, Family, Probe) (Resolution, error)
 	DialTCP  func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
+	// DialUDP returns a connected datagram transport to the admitted destination.
+	DialUDP func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
 }
 
 // Provider must bind Core operations to the selected generation, honor probe
@@ -120,6 +122,7 @@ const (
 	ConnectionReset    Code = "connection_reset"
 	StreamClosed       Code = "stream_closed"
 	TLSFailed          Code = "tls_failed"
+	QUICFailed         Code = "quic_failed"
 	CertificateInvalid Code = "certificate_invalid"
 	ProtocolError      Code = "protocol_error"
 	HTTPResponse       Code = "http_response"
