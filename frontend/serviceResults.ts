@@ -56,7 +56,7 @@ export function serviceAvailability(targets: readonly TargetResult[], finished: 
   return finished || state === 'limited' ? state : 'unconfirmed'
 }
 
-export const stageKeys = ['dns', 'tcp', 'udp', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
+export const stageKeys = ['dns', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
 export type Stage = typeof stageKeys[number]
 
 function stageFact(row: Row, stage: Stage): Availability | undefined {

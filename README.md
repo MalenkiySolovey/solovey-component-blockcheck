@@ -33,6 +33,10 @@ an authenticated TLS 1.3 handshake with HTTP/3 ALPN. `http3` also requests
 to TCP, or follows redirects. An open UDP socket alone is not evidence of a
 response. An incomplete QUIC handshake can also mean the endpoint does not
 support HTTP/3, not just an interruption on the network.
+On the same kind of connected UDP path, `stun` sends a bounded Binding request
+to the configured endpoint on UDP 3478 or 19302. A matching valid response
+proves only that the endpoint answered this request, not that calls work. It
+does not follow alternate servers or retain the reflected client address.
 The host must qualify each mode separately. HTTP responses and DNS status codes
 are observations, not proof of censorship or full service availability. As in
 the frozen ZapretGUI diagnostics, the report distinguishes resolution,

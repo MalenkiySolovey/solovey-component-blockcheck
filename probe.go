@@ -34,7 +34,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		resolverProbe = row.Probe
 	case TCP, TLS, TLS12, TLS13, HTTP, HTTPS, HTTPData, HTTPSData:
 		needsSocket = true
-	case QUIC, HTTP3:
+	case QUIC, HTTP3, STUN:
 		needsSocket, datagram, dial = true, true, path.DialUDP
 	default:
 		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
@@ -140,6 +140,8 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	port := uint16(443)
 	if row.Probe == HTTP || row.Probe == HTTPData {
 		port = 80
+	} else if row.Probe == STUN {
+		port = target.Port
 	}
 	row.Stage = StageTCP
 	if datagram {
@@ -164,6 +166,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		return
 	}
 	row.Socket = socketObservation(evidence)
+	if row.Probe == STUN {
+		probeSTUN(ctx, row, conn)
+		return
+	}
 	if datagram {
 		probeQUIC(ctx, row, conn, quicTLSConfig(target.Host))
 		return

@@ -38,7 +38,7 @@
     {"name":"Roblox","host":"roblox.com","role":"DNS only","probes":["dns"]},
     {"name":"Meduza","host":"meduza.io","role":"DNS only","probes":["dns"]}
   ]},
-  {"id":"stun-controls","name":"STUN controls","description":"Endpoint data only unless the selected path supplies a qualified STUN capability.","targets":[
+  {"id":"stun-controls","name":"STUN controls","description":"STUN endpoint reachability. A reply does not establish voice-call availability.","targets":[
     {"name":"Google STUN","host":"stun.l.google.com","role":"general","port":19302,"probes":["stun"]},
     {"name":"CF STUN","host":"stun.cloudflare.com","role":"general","port":3478,"probes":["stun"]},
     {"name":"Twilio STUN","host":"global.stun.twilio.com","role":"general","port":3478,"probes":["stun"]},

@@ -47,6 +47,7 @@ const (
 	StageDNS         Stage = "dns"
 	StageTCP         Stage = "tcp"
 	StageUDP         Stage = "udp"
+	StageSTUN        Stage = "stun"
 	StageQUIC        Stage = "quic"
 	StageTLS         Stage = "tls"
 	StageCertificate Stage = "certificate"
@@ -96,6 +97,10 @@ func interpretProbe(row Result) *Finding {
 		}
 	case StageUDP:
 		return fact("udp_socket_unavailable", "listener_or_firewall", "path_or_service")
+	case StageSTUN:
+		if row.Status != OK {
+			return fact("stun_binding_incomplete", "stun_support_policy", "path_or_service", "intermediary")
+		}
 	case StageQUIC:
 		if row.Status != OK {
 			return fact("quic_handshake_incomplete", "quic_support_policy", "path_or_service", "intermediary")
