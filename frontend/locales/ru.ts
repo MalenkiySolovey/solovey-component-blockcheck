@@ -11,6 +11,7 @@ export default { blockcheck: {
   differentContext: 'Запуски не сравнивались: изменился путь, поколение Core, цели или набор проб либо одна из проверок не завершилась.',
   pathNotConfirmed: 'Настройки совпадают; фактический путь подтверждён не для каждой пробы.',
   changedGroups: 'Изменилась доступность групп: {count}', changedProbes: 'Изменился итог проб: {count}',
+  changedGroupDetails: 'Изменения с предыдущей проверки', groupTransition: '{before} → {after}',
   targetResults: 'Результаты по целям', moreTargets: 'Других целей: {count}', protocolResults: 'Результаты по протоколам',
   connectionStages: 'Этапы соединения', compactComparison: '{path}: {result} · {duration}',
   protocol: { dns: 'DNS', tcp: 'TCP', tls: 'TLS', http: 'HTTP/S', chrome: 'TLS Chrome', quic: 'QUIC / HTTP/3', transfer: 'Передача', stun: 'Звонки (STUN)', icmp: 'ICMP' },

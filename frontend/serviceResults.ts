@@ -1,4 +1,4 @@
-import type { Report, Row, TargetSnapshot } from './api'
+import type { HistoryEntry, HistoryRun, Report, Row, TargetSnapshot } from './api'
 
 export const availabilityStates = ['available', 'limited', 'unavailable', 'unconfirmed'] as const
 export type Availability = typeof availabilityStates[number]
@@ -64,6 +64,38 @@ export function cardTargetLabel(target: TargetSnapshot): string {
 export function serviceAvailability(targets: readonly TargetResult[], finished: boolean): Availability {
   const state = combineAvailability(targets.map(target => target.state))
   return finished || state === 'limited' ? state : 'unconfirmed'
+}
+
+export function groupAvailability(entry?: HistoryEntry): Availability {
+  return entry ? serviceAvailability(targetResults(entry.targets.length, entry.report.results), entry.report.job.phase === 'COMPLETED') : 'unconfirmed'
+}
+
+type AggregateEvidence = Pick<HistoryRun, 'phase' | 'depth' | 'omitted' | 'progress'> & {
+  groups: ReadonlyMap<string, HistoryEntry | undefined>
+}
+type AvailabilityChange = { id: string; before: Availability; after: Availability }
+type AggregateComparison = { kind: 'noPrevious' | 'differentContext' } |
+  { kind: 'comparable'; changes: AvailabilityChange[]; unobservedPath: boolean }
+
+export function compareAggregates(current?: AggregateEvidence, previous?: AggregateEvidence): AggregateComparison {
+  if (!previous) return { kind: 'noPrevious' }
+  if (!current || current.depth !== previous.depth || current.groups.size !== previous.groups.size ||
+    [current, previous].some(run => run.omitted || run.phase !== 'COMPLETED' || !run.groups.size ||
+      run.progress.groupsDone !== run.progress.totalGroups || run.progress.totalGroups !== run.groups.size ||
+      run.progress.probesDone !== run.progress.totalProbes)) return { kind: 'differentContext' }
+
+  const changes: AvailabilityChange[] = []
+  let unobservedPath = false
+  for (const [id, entry] of current.groups) {
+    const prior = previous.groups.get(id)
+    if (!entry || !prior) return { kind: 'differentContext' }
+    const scope = reportContext(entry.report, prior.report)
+    if (scope === 'different') return { kind: 'differentContext' }
+    unobservedPath ||= scope === 'configured'
+    const before = groupAvailability(prior), after = groupAvailability(entry)
+    if (before !== after) changes.push({ id, before, after })
+  }
+  return { kind: 'comparable', changes, unobservedPath }
 }
 
 export const stageKeys = ['dns', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const

@@ -65,6 +65,18 @@
         <span>{{ aggregateChange }}</span>
         <span v-if="aggregate.omitted">{{ t('blockcheck.historyOmitted', { count: aggregate.omitted }) }}</span>
       </div>
+      <details v-if="aggregateChanges.length" :key="aggregate.id" class="aggregate-changes mt-2 text-body-2">
+        <summary>{{ t('blockcheck.changedGroupDetails') }}</summary>
+        <ul class="mt-1">
+          <li v-for="change in aggregateChanges" :key="change.id">
+            <strong>{{ groupNames.get(change.id) ?? change.id }}</strong>:
+            <i18n-t keypath="blockcheck.groupTransition" scope="global">
+              <template #before><span :data-availability="change.before">{{ availability(change.before) }}</span></template>
+              <template #after><span :data-availability="change.after">{{ availability(change.after) }}</span></template>
+            </i18n-t>
+          </li>
+        </ul>
+      </details>
     </section>
     <v-alert v-if="historyWarning" type="warning" variant="tonal" density="compact" class="mb-2">{{ reason(historyWarning) }}</v-alert>
     <div v-if="notice" class="text-caption mb-2" role="status">{{ notice }}</div>
@@ -274,7 +286,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
 import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
-import { addressResults, availabilityColor, availabilityStates, cardTargetLabel, probeAvailability, protocolResults, reportContext, serviceAvailability, targetEndpoint, targetResults, type Availability } from './serviceResults'
+import { addressResults, availabilityColor, availabilityStates, cardTargetLabel, compareAggregates, groupAvailability, probeAvailability, protocolResults, reportContext, targetEndpoint, targetResults, type Availability } from './serviceResults'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -375,7 +387,7 @@ const groupIcons: Record<string, string> = { youtube: 'lucide:play', discord: 'l
   chatgpt: 'lucide:message-square', rutracker: 'lucide:download', twitch: 'lucide:play', linkedin: 'lucide:users',
   'web-controls': 'lucide:shield-check', 'dns-extras': 'lucide:network', 'stun-controls': 'lucide:activity', 'icmp-controls': 'lucide:gauge' }
 const groupIcon = (row: Group) => groupIcons[row.origin?.template ?? ''] ?? 'lucide:globe'
-const summaryOf = (entry?: HistoryEntry) => entry ? serviceAvailability(targetResults(entry.targets.length, entry.report.results), entry.report.job.phase === 'COMPLETED') : 'unconfirmed'
+const groupNames = computed(() => new Map(catalog.value?.groups.map(row => [row.id, row.name])))
 const serviceCards = computed(() => new Map((catalog.value?.groups ?? []).flatMap(row => {
   const batch = currentBatches.value.get(row.id), entry = history.value.get(row.id)?.[0]
   const rows = batch ?? entry?.report.results
@@ -398,7 +410,7 @@ const aggregate = computed(() => {
   const run = aggregateRuns.value[aggregateIndex.value]
   if (!run) return
   const counts: Record<Availability, number> = { available: 0, limited: 0, unavailable: 0, unconfirmed: 0 }
-  for (const entry of run.groups.values()) counts[summaryOf(entry)]++
+  for (const entry of run.groups.values()) counts[groupAvailability(entry)]++
   return { ...run, counts }
 })
 const aggregateChoices = computed(() => aggregateRuns.value.map((run, value) => ({value, title: [runDate(run.startedAt), pathLabel(run.path)].join(' · ')})))
@@ -407,22 +419,13 @@ const aggregateContext = computed(() => {
   return run ? [runDate(run.startedAt), hostId.value === 'local' ? t('blockcheck.local') : hostId.value, pathLabel(run.path),
     t('blockcheck.' + run.family), t('blockcheck.' + run.depth)].join(' · ') : ''
 })
+const aggregateComparison = computed(() => compareAggregates(aggregateRuns.value[aggregateIndex.value], aggregateRuns.value[aggregateIndex.value + 1]))
+const aggregateChanges = computed(() => aggregateComparison.value.kind === 'comparable' ? aggregateComparison.value.changes : [])
 const aggregateChange = computed(() => {
-  const latest = aggregateRuns.value[aggregateIndex.value], previous = aggregateRuns.value[aggregateIndex.value + 1]
-  if (!previous) return t('blockcheck.noPrevious')
-  if (!latest || latest.omitted || previous.omitted || latest.phase !== 'COMPLETED' || previous.phase !== 'COMPLETED' || latest.depth !== previous.depth || latest.groups.size !== previous.groups.size) {
-    return t('blockcheck.differentContext')
-  }
-  let changed = 0, unobservedPath = false
-  for (const [id, entry] of latest.groups) {
-    const prior = previous.groups.get(id)
-    if (!entry || !prior) return t('blockcheck.differentContext')
-    const scope = reportContext(entry.report, prior.report)
-    if (scope === 'different') return t('blockcheck.differentContext')
-    unobservedPath ||= scope === 'configured'
-    if (summaryOf(entry) !== summaryOf(prior)) changed++
-  }
-  return comparisonText(changed ? t('blockcheck.changedGroups', { count: changed }) : t('blockcheck.noChanges'), unobservedPath)
+  const result = aggregateComparison.value
+  if (result.kind !== 'comparable') return t(`blockcheck.${result.kind}`)
+  const changed = result.changes.length
+  return comparisonText(changed ? t('blockcheck.changedGroups', { count: changed }) : t('blockcheck.noChanges'), result.unobservedPath)
 })
 const previousGroupChange = computed(() => {
   const entry = visibleEntry.value, prior = groupHistory.value[runIndex.value + 1]
@@ -442,7 +445,7 @@ function groupSummary(id: string) {
   }
   const report = lastReport(id)
   if (!report) return { label: t('blockcheck.notRun'), color: undefined }
-  const state = summaryOf(history.value.get(id)?.[0])
+  const state = groupAvailability(history.value.get(id)?.[0])
   return { label: availability(state), color: availabilityColor[state] }
 }
 
@@ -743,6 +746,9 @@ onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
 .overview-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr)); gap: 8px; }
 .overview-counts > div { min-width: 0; border-inline-start: 2px solid var(--result-accent, currentColor); padding-inline-start: 8px; overflow-wrap: anywhere; }
 .overview-counts dd { margin: 0; }
+.aggregate-changes { overflow-wrap: anywhere; }
+.aggregate-changes summary { cursor: pointer; }
+.aggregate-changes ul { padding-inline-start: 1.25rem; }
 [data-availability="available"] { --result-accent: rgb(var(--v-theme-success)); }
 [data-availability="limited"] { --result-accent: rgb(var(--v-theme-warning)); }
 [data-availability="unavailable"] { --result-accent: rgb(var(--v-theme-error)); }
