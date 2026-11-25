@@ -1,13 +1,13 @@
 {
   "schema": "solovey.component.source-provenance/v1",
   "component": "blockcheck",
-  "policy": "Only frozen ZapretGUI target data is adapted. No Windows executable, dynamic discovery, branding assets or separately licensed transfer-test data are used.",
+  "policy": "Only pinned ZapretGUI target data and service-oriented run behavior are adapted. No Windows executable, dynamic discovery, branding assets or separately licensed transfer-test data are used.",
   "sourceOwners": ["github.com/MalenkiySolovey/solovey-component-blockcheck"],
   "defaults": {
-    "repository": "https://git2.zapret.moe/zapretdiscordyoutube/zapretgui",
-    "tag": "22.0.0.0",
-    "commit": "4934082a4069e2e66e35668cf6a03cf4c8de16d2",
+    "repository": "https://ywumezrlvv.zapret.moe/zapretdiscordyoutube/zapretgui",
+    "commit": "47a1b0d7c4acb0426bdaf0c2f03a40df458a7e91",
+    "previousReference": {"tag": "22.0.0.0", "commit": "4934082a4069e2e66e35668cf6a03cf4c8de16d2"},
     "license": "MIT",
-    "paths": ["src/blockcheck/quick_services.py", "src/blockcheck/data_lists.py"]
+    "paths": ["src/blockcheck/quick_services.py", "src/blockcheck/data_lists.py", "src/blockcheck/ui/quick_service_cards.py", "src/blockcheck/page_run_workflow.py"]
   }
 }

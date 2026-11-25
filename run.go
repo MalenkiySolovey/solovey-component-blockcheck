@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	MaxProbes   = 32
-	RunBudget   = 30 * time.Second
-	ProbeBudget = 5 * time.Second
+	// The compatibility JSON endpoint has a fixed response time; the streamed
+	// runner batches the complete selected catalog instead.
+	maxSynchronousProbes = 32
+	RunBudget            = 30 * time.Second
+	ProbeBudget          = 5 * time.Second
 )
 
 type Mode string
@@ -50,7 +52,7 @@ type Cell struct {
 }
 
 type RunRequest struct {
-	GroupID         string        `json:"groupId"`
+	GroupID         string        `json:"groupId,omitempty"`
 	CatalogRevision string        `json:"catalogRevision"`
 	Path            PathSelection `json:"path"`
 	Family          Family        `json:"family"`
@@ -90,8 +92,9 @@ type Path struct {
 	DialTCP  func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
 }
 
-// Provider must bind Core operations to the selected generation, and must
-// never provide another path when the requested one is not available.
+// Provider must bind Core operations to the selected generation, honor probe
+// contexts, and allow concurrent calls to the opened path. It must never
+// provide another path when the requested one is not available.
 type Provider interface {
 	Open(context.Context, hostref.Ref, PathSelection) (Path, error)
 }
@@ -175,20 +178,7 @@ type Report struct {
 }
 
 func requestedCells(group Group, req RunRequest) ([]Cell, error) {
-	if req.GroupID != group.ID || group.validate() != nil || !validID(group.ID) || req.Family != Any && req.Family != IPv4 && req.Family != IPv6 {
-		return nil, ErrInvalidRun
-	}
-	selection := req.Path
-	if !validText(selection.Ref, 256, selection.Mode != HostBaseline) || !validText(selection.Resolver, 256, false) {
-		return nil, ErrInvalidRun
-	}
-	switch selection.Mode {
-	case Panel, Outbound:
-	case HostBaseline:
-		if selection.Ref != "" {
-			return nil, ErrInvalidRun
-		}
-	default:
+	if req.GroupID != group.ID || group.validate() != nil || !validID(group.ID) || !validRunPath(req.Path, req.Family) {
 		return nil, ErrInvalidRun
 	}
 	cells := slices.Clone(req.Cells)
@@ -198,9 +188,6 @@ func requestedCells(group Group, req RunRequest) ([]Cell, error) {
 				cells = append(cells, Cell{Target: i, Probe: probe})
 			}
 		}
-	}
-	if len(cells) > MaxProbes {
-		return nil, ErrInvalidRun
 	}
 	seen := map[Cell]bool{}
 	for _, cell := range cells {
@@ -212,9 +199,24 @@ func requestedCells(group Group, req RunRequest) ([]Cell, error) {
 	return cells, nil
 }
 
+func validRunPath(selection PathSelection, family Family) bool {
+	if family != Any && family != IPv4 && family != IPv6 || !validText(selection.Resolver, 256, false) {
+		return false
+	}
+	switch selection.Mode {
+	case Panel, Outbound:
+		return validText(selection.Ref, 256, true)
+	case HostBaseline:
+		return selection.Ref == ""
+	default:
+		return false
+	}
+}
+
 type activeRun struct {
-	done   chan struct{}
-	cancel context.CancelFunc
+	done      chan struct{}
+	cancel    context.CancelFunc
+	operation string // Only a streamed run exposes explicit cancellation.
 }
 
 // Component owns only cooperative admission to one operator-requested run.
@@ -275,79 +277,28 @@ func (c *Component) Run(ctx context.Context, host hostref.Ref, catalog Catalog, 
 		return Report{}, ErrGroupNotFound
 	}
 	cells, err := requestedCells(group, req)
-	if err != nil || provider == nil || permit == nil || ctx == nil {
+	if err != nil || len(cells) > maxSynchronousProbes || provider == nil || permit == nil || ctx == nil {
 		return Report{}, ErrInvalidRun
 	}
-	c.mu.Lock()
-	if !c.active || host != c.host || ctx.Err() != nil {
-		c.mu.Unlock()
-		return Report{}, ErrInactive
-	}
-	if c.run != nil {
-		c.mu.Unlock()
-		return Report{}, ErrBusy
-	}
 	runCtx, cancel := context.WithTimeout(ctx, RunBudget)
-	current := &activeRun{done: make(chan struct{}), cancel: cancel}
-	c.run = current
-	c.mu.Unlock()
-	defer func() {
-		cancel()
-		c.mu.Lock()
-		c.run = nil
-		close(current.done)
-		c.mu.Unlock()
-	}()
+	defer cancel()
+	release, err := c.admit(runCtx, host, cancel, "")
+	if err != nil {
+		return Report{}, err
+	}
+	defer release()
 
 	ref := operationref.NewReference(ID, group.ID, newID("probe-"))
 	deadline, _ := runCtx.Deadline()
 	report := Report{Path: req.Path, Family: req.Family, GroupID: group.ID, GroupRevision: group.Revision(),
 		StartedAt: time.Now().UTC(), Results: make([]Result, 0, len(cells))}
-	path, pathErr := provider.Open(runCtx, host, req.Path)
+	path, pathErr := openPath(runCtx, host, req.Path, provider)
 	if pathErr == nil {
-		if path.Current == nil || path.Evidence.Host != host || path.Evidence.Mode != req.Path.Mode || !validPathEvidence(path.Evidence) {
-			pathErr = PathError("path_evidence_unavailable")
-		} else {
-			value := path.Evidence
-			report.Evidence = &value
-		}
+		report.Evidence = &path.Evidence
 	}
 	for _, cell := range cells {
-		target := group.Targets[cell.Target]
-		row := Result{Cell: cell, TargetRef: health.Revision(target.Host)}
-		started := time.Now()
-		switch {
-		case runCtx.Err() != nil:
-			row.Status = classify(runCtx.Err(), Canceled)
-		case pathErr != nil:
-			row.Status, row.Reason = PathUnavailable, pathReason(pathErr)
-		default:
-			probeCtx, cancelProbe := context.WithTimeout(runCtx, ProbeBudget)
-			if err := path.Current(probeCtx); err != nil {
-				row.Status, row.Reason = Unobservable, pathReason(err)
-			} else {
-				performProbe(probeCtx, &row, target, path, req.Family, permit)
-				if probeCtx.Err() == nil {
-					if err := path.Current(probeCtx); err != nil {
-						row = Result{Cell: cell, TargetRef: row.TargetRef, Status: Unobservable, Reason: pathReason(err)}
-					}
-				} else {
-					row = Result{Cell: cell, TargetRef: row.TargetRef, Status: classify(probeCtx.Err(), Canceled)}
-				}
-			}
-			cancelProbe()
-		}
-		row.ElapsedMS = time.Since(started).Milliseconds()
-		if row.Status == OK || row.Status == HTTPResponse && row.HTTPStatus >= 200 && row.HTTPStatus < 300 ||
-			row.Status == DNSResponse && row.AnswerCount > 0 && (row.DNSRCode == nil || *row.DNSRCode == 0) {
-			observed := revision(struct {
-				Run, Group string
-				Path       PathEvidence
-				Result     Result
-			}{ref.OperationID, report.GroupRevision, path.Evidence, row})
-			result := health.Result{ResourceID: group.ID, Status: health.StatusOK, Check: string(cell.Probe), FactCode: string(row.Status)}
-			row.Proof = health.WithEvidence(result, ID, health.ProbeOK, "manual-blockcheck", observed, time.Now().UTC(), time.Minute).Evidence
-		}
+		row := probeCell(runCtx, cell, group.Targets[cell.Target], path, pathErr, req.Family, permit)
+		attachProof(&row, ref, report.GroupRevision, path.Evidence)
 		report.Results = append(report.Results, row)
 	}
 	phase, outcome := "COMPLETED", operationref.OutcomeCommitted
@@ -361,6 +312,80 @@ func (c *Component) Run(ctx context.Context, host hostref.Ref, catalog Catalog, 
 		ExpectedRevision: report.GroupRevision, Outcome: outcome}, nil, false)
 	report.Job.Deadline = deadline.Unix()
 	return report, nil
+}
+
+func (c *Component) admit(ctx context.Context, host hostref.Ref, cancel context.CancelFunc, operation string) (func(), error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.active || host != c.host || ctx.Err() != nil {
+		return nil, ErrInactive
+	}
+	if c.run != nil {
+		return nil, ErrBusy
+	}
+	current := &activeRun{done: make(chan struct{}), cancel: cancel, operation: operation}
+	c.run = current
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.run = nil
+		close(current.done)
+	}, nil
+}
+
+func openPath(ctx context.Context, host hostref.Ref, selection PathSelection, provider Provider) (Path, error) {
+	path, err := provider.Open(ctx, host, selection)
+	if err != nil {
+		return Path{}, err
+	}
+	if path.Current == nil || path.Evidence.Host != host || path.Evidence.Mode != selection.Mode || !validPathEvidence(path.Evidence) {
+		return Path{}, PathError("path_evidence_unavailable")
+	}
+	return path, nil
+}
+
+func probeCell(ctx context.Context, cell Cell, target Target, path Path, pathErr error, family Family, permit func(netip.Addr) bool) Result {
+	row := Result{Cell: cell, TargetRef: health.Revision(target.Host)}
+	started := time.Now()
+	switch {
+	case ctx.Err() != nil:
+		row.Status = classify(ctx.Err(), Canceled)
+	case pathErr != nil:
+		row.Status, row.Reason = PathUnavailable, pathReason(pathErr)
+	default:
+		probeCtx, cancel := context.WithTimeout(ctx, ProbeBudget)
+		defer cancel()
+		if err := path.Current(probeCtx); err != nil {
+			row.Status, row.Reason = Unobservable, pathReason(err)
+		} else {
+			performProbe(probeCtx, &row, target, path, family, permit)
+			if err := probeCtx.Err(); err != nil {
+				row = Result{Cell: cell, TargetRef: row.TargetRef, Status: classify(err, Canceled)}
+			} else if err := path.Current(probeCtx); err != nil {
+				row = Result{Cell: cell, TargetRef: row.TargetRef, Status: Unobservable, Reason: pathReason(err)}
+			}
+		}
+	}
+	row.ElapsedMS = time.Since(started).Milliseconds()
+	return row
+}
+
+func attachProof(row *Result, ref operationref.Reference, groupRevision string, path PathEvidence) {
+	if !row.positive() {
+		return
+	}
+	observed := revision(struct {
+		Run, Group string
+		Path       PathEvidence
+		Result     Result
+	}{ref.OperationID, groupRevision, path, *row})
+	result := health.Result{ResourceID: ref.ResourceID, Status: health.StatusOK, Check: string(row.Probe), FactCode: string(row.Status)}
+	row.Proof = health.WithEvidence(result, ID, health.ProbeOK, "manual-blockcheck", observed, time.Now().UTC(), time.Minute).Evidence
+}
+
+func (r Result) positive() bool {
+	return r.Status == OK || r.Status == HTTPResponse && r.HTTPStatus >= 200 && r.HTTPStatus < 300 ||
+		r.Status == DNSResponse && r.AnswerCount > 0 && (r.DNSRCode == nil || *r.DNSRCode == 0)
 }
 
 func validPathEvidence(e PathEvidence) bool {
