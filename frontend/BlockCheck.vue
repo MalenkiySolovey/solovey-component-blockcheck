@@ -37,7 +37,7 @@
       <v-btn variant="text" prepend-icon="lucide:rotate-ccw" :disabled="busy || running" @click="restoreId = ''; restoring = true">{{ t('blockcheck.restore') }}</v-btn>
       <input ref="upload" type="file" accept="application/json,.json" hidden @change="importFile" />
     </div>
-    <section v-if="running || shownProgress" class="blockcheck-progress mb-3" aria-labelledby="blockcheck-progress">
+    <section v-if="running" class="blockcheck-progress mb-3" aria-labelledby="blockcheck-progress">
       <div class="d-flex flex-wrap align-center justify-space-between ga-1">
         <h2 id="blockcheck-progress" class="text-subtitle-2">{{ progressTitle }}</h2>
         <span v-if="shownProgress" class="text-caption" role="status">{{ t('blockcheck.progress', shownProgress.progress) }}</span>
@@ -45,12 +45,36 @@
       <v-progress-linear v-if="running" class="mt-2" :aria-label="t('blockcheck.progressLabel')"
         :indeterminate="!shownProgress" :model-value="shownProgress ? shownProgress.progress.probesDone / shownProgress.progress.totalProbes * 100 : 0" />
     </section>
+    <section v-if="aggregate" class="result-overview mb-4" aria-labelledby="blockcheck-overview">
+      <div class="d-flex flex-wrap align-center justify-space-between ga-2">
+        <h2 id="blockcheck-overview" class="text-subtitle-1 font-weight-medium">{{ t(aggregateIndex ? 'blockcheck.previousOverview' : 'blockcheck.overview') }}</h2>
+        <div class="text-caption text-medium-emphasis">{{ aggregateContext }}</div>
+      </div>
+      <v-select v-if="aggregateChoices.length > 1" v-model="aggregateIndex" :items="aggregateChoices" :label="t('blockcheck.aggregateHistory')"
+        density="compact" hide-details class="aggregate-history mt-2" />
+      <dl class="overview-counts mt-2">
+        <div v-for="state in availabilityStates" :key="state" :data-availability="state">
+          <dt class="text-caption">{{ availability(state) }}</dt><dd class="text-h6">{{ aggregate.counts[state] }}</dd>
+        </div>
+      </dl>
+      <div class="d-flex flex-wrap ga-2 mt-2 text-caption text-medium-emphasis">
+        <span>{{ t(`blockcheck.phase.${aggregate.phase}`) }}</span>
+        <span>{{ t('blockcheck.progress', aggregate.progress) }}</span>
+        <span>{{ t('blockcheck.problemCount', { count: aggregate.counts.limited + aggregate.counts.unavailable }) }}</span>
+        <span>{{ t('blockcheck.elapsed', { duration: duration(aggregate.elapsed) }) }}</span>
+        <span>{{ aggregateChange }}</span>
+        <span v-if="aggregate.omitted">{{ t('blockcheck.historyOmitted', { count: aggregate.omitted }) }}</span>
+      </div>
+    </section>
+    <v-alert v-if="historyWarning" type="warning" variant="tonal" density="compact" class="mb-2">{{ reason(historyWarning) }}</v-alert>
     <div v-if="notice" class="text-caption mb-2" role="status">{{ notice }}</div>
     <p v-if="catalog && !catalog.groups.length" class="text-body-2 text-medium-emphasis">{{ t('blockcheck.none') }}</p>
     <div v-else-if="catalog" class="blockcheck-group-grid">
       <v-card v-for="(row, index) in catalog.groups" :key="row.id" tag="article" variant="outlined" class="blockcheck-group pa-3" :data-group-id="row.id">
         <div class="d-flex justify-space-between align-start ga-2">
-          <h2 class="text-subtitle-1 font-weight-medium">{{ row.name }}</h2>
+          <h2 class="d-flex align-center ga-2 text-subtitle-1 font-weight-medium">
+            <v-icon :icon="groupIcon(row)" size="20" aria-hidden="true" /><span>{{ row.name }}</span>
+          </h2>
           <v-menu>
             <template #activator="{ props }">
               <v-btn v-bind="props" icon="lucide:ellipsis-vertical" variant="text" size="small" density="comfortable"
@@ -72,8 +96,26 @@
         <div class="d-flex align-center flex-wrap ga-2 mb-2">
           <v-chip :color="groupSummary(row.id).color" density="compact" size="small" variant="tonal">{{ groupSummary(row.id).label }}</v-chip>
           <span v-if="row.disabled" class="text-caption text-medium-emphasis">{{ t('blockcheck.excluded') }}</span>
-          <span v-if="lastReport(row.id)" class="text-caption text-medium-emphasis">{{ runTitle(lastReport(row.id)!) }}</span>
+          <span v-if="lastReport(row.id)" class="text-caption text-medium-emphasis" :title="runTitle(lastReport(row.id)!)">{{ cardRunTitle(lastReport(row.id)!) }}</span>
         </div>
+        <template v-if="serviceCards.get(row.id)">
+          <ul class="card-targets text-caption mb-2" :aria-label="t('blockcheck.targetResults')">
+            <li v-for="target in serviceCards.get(row.id)!.preview" :key="target.index" class="d-flex flex-wrap align-baseline justify-space-between ga-1">
+              <span>{{ target.label }}</span>
+              <span class="result-state" :data-availability="target.state">{{ availability(target.state) }}</span>
+            </li>
+          </ul>
+          <p v-if="serviceCards.get(row.id)!.hidden" class="text-caption text-medium-emphasis mb-2">
+            {{ t('blockcheck.moreTargets', { count: serviceCards.get(row.id)!.hidden }) }}
+          </p>
+          <ul class="protocol-results d-flex flex-wrap ga-2 mb-2 text-caption" :aria-label="t('blockcheck.protocolResults')">
+            <li v-for="result in serviceCards.get(row.id)!.protocols" :key="result.protocol" class="d-inline-flex align-center ga-1"
+              :title="availability(result.state)">
+              <v-icon :icon="availabilityIcon[result.state]" class="result-state" :data-availability="result.state" size="14" aria-hidden="true" />
+              <span>{{ t('blockcheck.protocol.' + result.protocol) }}<span class="d-sr-only">: {{ availability(result.state) }}</span></span>
+            </li>
+          </ul>
+        </template>
         <div class="d-flex flex-wrap align-center ga-2 mt-auto">
           <v-btn size="small" variant="tonal" prepend-icon="lucide:play" :disabled="!canRun || running || selectionEmpty(row.id)" @click="start(row.id)">{{ t('blockcheck.check') }}</v-btn>
           <v-btn size="small" variant="text" :append-icon="expanded && selected === row.id ? 'lucide:chevron-up' : 'lucide:chevron-down'"
@@ -81,8 +123,10 @@
         </div>
       </v-card>
     </div>
-    <h2 v-if="expanded && group" id="blockcheck-group-details" class="text-h6 mt-5 mb-2">{{ group.name }}</h2>
-    <v-table v-if="expanded && group" class="probe-table" density="compact">
+    <h2 v-if="expanded && group" id="blockcheck-group-details" tabindex="-1" class="text-h6 mt-5 mb-2">{{ group.name }}</h2>
+    <details v-if="expanded && group" :key="group.id" :open="!visibleReport" class="blockcheck-scope">
+      <summary>{{ t('blockcheck.probeSelection') }}</summary>
+      <v-table class="probe-table" density="compact">
       <thead><tr><th scope="col">{{ t('blockcheck.target') }}</th><th scope="col">{{ t('blockcheck.role') }}</th><th scope="col">{{ t('blockcheck.probes') }}</th></tr></thead>
       <tbody>
         <tr v-for="(target, index) in group.targets" :key="index">
@@ -95,7 +139,8 @@
           </div></td>
         </tr>
       </tbody>
-    </v-table>
+      </v-table>
+    </details>
 
     <section v-if="expanded && visibleReport" class="mt-6" aria-labelledby="blockcheck-results">
       <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
@@ -103,16 +148,19 @@
         <v-btn variant="text" prepend-icon="mdi-content-copy" @click="copyFacts">{{ t('blockcheck.exportFacts') }}</v-btn>
       </div>
       <div class="blockcheck-results-controls mb-3">
-        <v-select v-model="runIndex" :items="runChoices" :label="t('blockcheck.history')" density="compact" hide-details />
+        <v-select v-model="runIndex" :items="runChoices" :label="t(options?.history ? 'blockcheck.history' : 'blockcheck.sessionHistory')" density="compact" hide-details />
         <v-select v-if="comparisonChoices.length" v-model="compareIndex" :items="comparisonChoices" :label="t('blockcheck.compare')" density="compact" hide-details clearable />
       </div>
+      <div v-if="previousGroupChange" class="text-caption text-medium-emphasis mb-2">{{ previousGroupChange }}</div>
       <div class="text-caption text-medium-emphasis mb-2">{{ t('blockcheck.factsHint') }}</div>
       <details class="mb-2">
         <summary>{{ t('blockcheck.details') }}</summary>
         <dl class="detail-list mt-2">
-          <dt>{{ t('blockcheck.path') }}</dt><dd>{{ t(`blockcheck.${visibleReport.path.mode}`) }} · {{ visibleReport.pathEvidence?.scope ?? t('blockcheck.unknown') }}</dd>
+          <dt>{{ t('blockcheck.path') }}</dt><dd>{{ pathTitle(visibleReport) }} · {{ visibleReport.pathEvidence?.scope ?? t('blockcheck.unknown') }}</dd>
           <dt>{{ t('blockcheck.observed') }}</dt><dd>{{ visibleReport.pathEvidence?.context ?? t('blockcheck.unknown') }}</dd>
           <dt>{{ t('blockcheck.revision') }}</dt><dd>{{ visibleReport.pathEvidence?.generation ?? t('blockcheck.unknown') }}</dd>
+          <dt>{{ t('blockcheck.family') }}</dt><dd>{{ t('blockcheck.' + visibleReport.family) }}</dd>
+          <template v-if="reportDuration(visibleReport)"><dt>{{ t('blockcheck.duration') }}</dt><dd>{{ reportDuration(visibleReport) }}</dd></template>
         </dl>
       </details>
       <ul v-if="visibleReport.findings?.length" class="finding-list mb-3">
@@ -121,28 +169,48 @@
           <div class="text-caption text-medium-emphasis">{{ findingDetails(finding) }}</div>
         </li>
       </ul>
-      <v-table class="probe-table" density="compact">
-        <thead><tr><th scope="col">{{ t('blockcheck.target') }}</th><th scope="col">{{ t('blockcheck.result') }}</th>
-          <th v-if="comparison" scope="col">{{ pathTitle(comparison.report) }}</th><th scope="col">{{ t('blockcheck.observed') }}</th></tr></thead>
-        <tbody>
-          <tr v-for="(row, index) in visibleReport.results" :key="cellKey(row.target, row.probe)">
-            <th scope="row" class="text-start">{{ targetLabel(row.target) }} · {{ row.probe.toUpperCase() }}</th>
-            <td>{{ observation(row) }}<div class="text-caption text-medium-emphasis">{{ row.elapsedMs }} ms</div>
-              <details v-if="row.interpretation" class="mt-1 text-caption">
-                <summary>{{ findingText(row.interpretation) }}</summary>
-                {{ findingDetails(row.interpretation) }}
-              </details>
-            </td>
-            <td v-if="comparison">{{ observation(comparison.report.results[index]) }}<div class="text-caption text-medium-emphasis">{{ comparison.report.results[index].elapsedMs }} ms · {{ rowFacts(comparison.report.results[index]) }}</div>
-              <details v-if="dnsDifferences[index]" class="mt-1 text-caption">
-                <summary>{{ t(`blockcheck.dnsDifference.${dnsDifferences[index]}`) }}</summary>
-                {{ t('blockcheck.dnsDifferenceEvidence') }}
-              </details>
-            </td>
-            <td class="text-caption">{{ rowFacts(row) }}</td>
-          </tr>
-        </tbody>
-      </v-table>
+      <h3 class="text-subtitle-2 mt-4 mb-2">{{ t('blockcheck.targetResults') }}</h3>
+      <details v-for="target in visibleTargets" :key="visibleReport.job.jobId + ':' + target.index" class="target-result" :open="target.index === 0 || target.state === 'unavailable' || target.state === 'limited'">
+        <summary>
+          <span class="font-weight-medium">{{ target.meta.host || target.meta.name }}</span>
+          <span v-if="target.meta.role" class="text-caption text-medium-emphasis">{{ target.meta.role }}</span>
+          <span class="result-state text-caption" :data-availability="target.state">{{ availability(target.state) }}</span>
+        </summary>
+        <template v-if="target.rows.length">
+          <ol class="connection-stages my-2" :aria-label="t('blockcheck.connectionStages')">
+            <li v-for="step in target.stages" :key="step.stage" :data-stage="step.stage" :data-availability="step.state">
+              <v-icon :icon="availabilityIcon[step.state]" size="16" aria-hidden="true" />
+              <strong class="text-caption">{{ t('blockcheck.stage.' + step.stage) }}</strong>
+              <span class="text-caption">{{ step.observed ? availability(step.state) : t('blockcheck.unknown') }}</span>
+            </li>
+          </ol>
+          <ul class="list-unstyled probe-evidence" :aria-label="t('blockcheck.observed')">
+            <li v-for="row in target.rows" :key="row.probe" class="py-2">
+              <div class="d-flex flex-wrap align-baseline ga-2">
+                <strong>{{ probeLabel(row.probe) }}</strong>
+                <span class="result-state" :data-availability="probeAvailability(row)">{{ observation(row) }}</span>
+                <span class="text-caption text-medium-emphasis">{{ duration(row.elapsedMs) }}</span>
+              </div>
+              <div class="text-caption text-medium-emphasis">{{ rowFacts(row) }}</div>
+              <div v-if="row.interpretation" class="mt-1 text-caption">
+                <strong>{{ findingText(row.interpretation) }}</strong><div>{{ findingDetails(row.interpretation) }}</div>
+              </div>
+              <template v-if="comparedRows.get(cellKey(row.target, row.probe))">
+                <div class="text-caption mt-1">{{ t('blockcheck.compactComparison', { path: pathTitle(comparison!.report), result: observation(comparedRows.get(cellKey(row.target, row.probe))!.row), duration: duration(comparedRows.get(cellKey(row.target, row.probe))!.row.elapsedMs) }) }}</div>
+                <div class="text-caption text-medium-emphasis">{{ rowFacts(comparedRows.get(cellKey(row.target, row.probe))!.row) }}</div>
+                <details v-if="comparedRows.get(cellKey(row.target, row.probe))!.dns" class="mt-1 text-caption">
+                  <summary>{{ t('blockcheck.dnsDifference.' + comparedRows.get(cellKey(row.target, row.probe))!.dns) }}</summary>
+                  <div>{{ t('blockcheck.dnsDifferenceEvidence') }}</div>
+                  <div v-for="path in comparedRows.get(cellKey(row.target, row.probe))!.authenticated" :key="path.key">
+                    {{ t('blockcheck.dnsCertificateEvidence', { path: path.label }) }}
+                  </div>
+                </details>
+              </template>
+            </li>
+          </ul>
+        </template>
+        <p v-else class="text-caption text-medium-emphasis mb-2">{{ t('blockcheck.unknown') }}</p>
+      </details>
     </section>
 
     <v-dialog :model-value="!!draft" max-width="720" @update:model-value="!$event && (draft = undefined)">
@@ -198,10 +266,11 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { cancelSuite, load, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type Mode, type Options, type Report, type Row, type SuiteEvent, type Target } from './api'
-import { comparable, dnsDifference } from './comparison'
+import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
+import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
+import { availabilityColor, availabilityStates, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetResults, type Availability } from './serviceResults'
 
-const { t, te } = useI18n()
+const { t, te, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const hostId = computed(() => typeof route.params.hostId === 'string' ? route.params.hostId : 'local')
@@ -230,10 +299,14 @@ const restoreId = ref('')
 const error = ref('')
 const editError = ref('')
 const notice = ref('')
-type HistoryEntry = { report: Report; labels: string[] }
+type AggregateRun = { id: string; groups: Map<string, HistoryEntry | undefined>; path: Report['path']; family: Family; depth: Depth;
+  startedAt: string; elapsed: number; phase: string; progress: SuiteProgress; omitted?: number }
 const history = ref(new Map<string, HistoryEntry[]>())
-const live = ref<SuiteEvent>()
-const lastAggregate = ref<SuiteEvent>()
+const historyWarning = ref('')
+const currentBatches = ref(new Map<string, Row[]>())
+const shownProgress = ref<SuiteEvent>()
+const aggregateRuns = ref<AggregateRun[]>([])
+const aggregateIndex = ref(0)
 const runIndex = ref(0)
 const compareIndex = ref<number | null>(null)
 let runController: AbortController | undefined
@@ -260,34 +333,111 @@ const canRun = computed(() => !loading.value && !busy.value && !pathBlocked.valu
   mode.value === 'OUTBOUND' ? options.value.outbounds.includes(outbound.value) : mode.value !== 'PANEL' || !!options.value.ingresses?.includes(ingress.value)
 ))
 const selectionEmpty = (id: string) => expanded.value && id === selected.value && enabled.value.size === 0
-const shownProgress = computed(() => running.value ? live.value : lastAggregate.value)
 const progressTitle = computed(() => stopping.value ? t('blockcheck.stopping') : t(`blockcheck.phase.${shownProgress.value?.job.phase ?? 'RUNNING'}`))
 const groupHistory = computed(() => history.value.get(selected.value) ?? [])
 const lastReport = (id: string) => history.value.get(id)?.[0]?.report
-const visibleReport = computed(() => groupHistory.value[runIndex.value]?.report)
-const pathTitle = (report: Report) => [t(`blockcheck.${report.path.mode}`), report.path.ref,
-  report.path.resolver && t('blockcheck.comparisonResolver', { resolver: report.path.resolver })].filter(Boolean).join(' · ')
-const runTitle = (report: Report) => `${new Date(report.startedAt).toLocaleTimeString()} · ${pathTitle(report)}`
+const visibleEntry = computed(() => groupHistory.value[runIndex.value])
+const visibleReport = computed(() => visibleEntry.value?.report)
+const pathLabel = (path: Report['path']) => [t(`blockcheck.${path.mode}`), path.ref,
+  path.resolver && t('blockcheck.comparisonResolver', { resolver: path.resolver })].filter(Boolean).join(' · ')
+const pathTitle = (report: Report) => pathLabel(report.path)
+const runDate = (value: string) => new Date(value).toLocaleString(locale.value, { dateStyle: 'short', timeStyle: 'short' })
+const cardRunTitle = (report: Report) => [runDate(report.startedAt), report.path.ref ?? t(`blockcheck.${report.path.mode}`)].join(' · ')
+const runTitle = (report: Report) => [runDate(report.startedAt), pathTitle(report),
+  report.job.phase !== 'COMPLETED' && t(`blockcheck.phase.${report.job.phase}`)].filter(Boolean).join(' · ')
 const runChoices = computed(() => groupHistory.value.map(({report}, value) => ({ value, title: runTitle(report) })))
-const comparisonChoices = computed(() => runChoices.value.filter(({value}) => value !== runIndex.value && visibleReport.value && comparable(visibleReport.value, groupHistory.value[value].report)))
+const comparisonChoices = computed(() => runChoices.value.filter(({value}) => value !== runIndex.value && visibleReport.value && (
+  comparable(visibleReport.value, groupHistory.value[value].report) || reportContext(visibleReport.value, groupHistory.value[value].report) !== 'different')))
 const comparison = computed(() => comparisonChoices.value.some(item => item.value === compareIndex.value) ? groupHistory.value[compareIndex.value!] : undefined)
-const dnsDifferences = computed(() => {
+const comparedRows = computed(() => {
   const other = comparison.value?.report
-  return other && visibleReport.value ? visibleReport.value.results.map((row, index) => dnsDifference(row, other.results[index])) : []
+  const current = visibleReport.value
+  return new Map(other && current ? current.results.map((row, index) => {
+    const compared = other.results[index]
+    const dns = dnsDifference(row, compared)
+    const authenticated = !dns ? [] : [{ key: 'current', row, report: current }, { key: 'compared', row: compared, report: other }]
+      .filter(entry => authenticatesDNSSet(entry.row, entry.report))
+      .map(entry => ({ key: entry.key, label: runTitle(entry.report) }))
+    return [cellKey(row.target, row.probe), { row: compared, dns, authenticated }] as const
+  }) : [])
 })
 
+const availability = (state: Availability) => t(`blockcheck.availability.${state}`)
+const availabilityIcon: Record<Availability, string> = { available: 'lucide:check', limited: 'lucide:alert-triangle', unavailable: 'lucide:x-circle', unconfirmed: 'lucide:info' }
+const groupIcons: Record<string, string> = { youtube: 'lucide:play', discord: 'lucide:message-square', telegram: 'lucide:send',
+  instagram: 'lucide:eye', facebook: 'lucide:users', x: 'lucide:message-square', whatsapp: 'lucide:message-square', spotify: 'lucide:activity',
+  chatgpt: 'lucide:message-square', rutracker: 'lucide:download', twitch: 'lucide:play', linkedin: 'lucide:users',
+  'web-controls': 'lucide:shield-check', 'dns-extras': 'lucide:network', 'stun-controls': 'lucide:activity', 'icmp-controls': 'lucide:gauge' }
+const groupIcon = (row: Group) => groupIcons[row.origin?.template ?? ''] ?? 'lucide:globe'
+const summaryOf = (entry?: HistoryEntry) => entry ? serviceAvailability(targetResults(entry.targets.length, entry.report.results), entry.report.job.phase === 'COMPLETED') : 'unconfirmed'
+const serviceCards = computed(() => new Map((catalog.value?.groups ?? []).flatMap(row => {
+  const batch = currentBatches.value.get(row.id), entry = history.value.get(row.id)?.[0]
+  const rows = batch ?? entry?.report.results
+  if (!rows) return []
+  const meta = (batch ? row.targets : entry?.targets) ?? row.targets
+  const targets = targetResults(meta.length, rows)
+  const priority: Record<Availability, number> = { unavailable: 0, limited: 1, unconfirmed: 2, available: 3 }
+  const preview = targets.slice().sort((a, b) => priority[a.state] - priority[b.state]).slice(0, 3).map(target => ({
+    ...target, label: meta[target.index].role || meta[target.index].name,
+  }))
+  return [[row.id, { preview, protocols: protocolResults(rows), hidden: targets.length - preview.length }] as const]
+})))
+const visibleTargets = computed(() => {
+  const entry = visibleEntry.value
+  return entry ? targetResults(entry.targets.length, entry.report.results).map(target => ({
+    ...target, meta: entry.targets[target.index], stages: connectionStages(target.rows),
+  })) : []
+})
+const aggregate = computed(() => {
+  const run = aggregateRuns.value[aggregateIndex.value]
+  if (!run) return
+  const counts: Record<Availability, number> = { available: 0, limited: 0, unavailable: 0, unconfirmed: 0 }
+  for (const entry of run.groups.values()) counts[summaryOf(entry)]++
+  return { ...run, counts }
+})
+const aggregateChoices = computed(() => aggregateRuns.value.map((run, value) => ({value, title: [runDate(run.startedAt), pathLabel(run.path)].join(' · ')})))
+const aggregateContext = computed(() => {
+  const run = aggregate.value
+  return run ? [runDate(run.startedAt), hostId.value === 'local' ? t('blockcheck.local') : hostId.value, pathLabel(run.path),
+    t('blockcheck.' + run.family), t('blockcheck.' + run.depth)].join(' · ') : ''
+})
+const aggregateChange = computed(() => {
+  const latest = aggregateRuns.value[aggregateIndex.value], previous = aggregateRuns.value[aggregateIndex.value + 1]
+  if (!previous) return t('blockcheck.noPrevious')
+  if (!latest || latest.omitted || previous.omitted || latest.phase !== 'COMPLETED' || previous.phase !== 'COMPLETED' || latest.depth !== previous.depth || latest.groups.size !== previous.groups.size) {
+    return t('blockcheck.differentContext')
+  }
+  let changed = 0, unobservedPath = false
+  for (const [id, entry] of latest.groups) {
+    const prior = previous.groups.get(id)
+    if (!entry || !prior) return t('blockcheck.differentContext')
+    const scope = reportContext(entry.report, prior.report)
+    if (scope === 'different') return t('blockcheck.differentContext')
+    unobservedPath ||= scope === 'configured'
+    if (summaryOf(entry) !== summaryOf(prior)) changed++
+  }
+  return comparisonText(changed ? t('blockcheck.changedGroups', { count: changed }) : t('blockcheck.noChanges'), unobservedPath)
+})
+const previousGroupChange = computed(() => {
+  const entry = visibleEntry.value, prior = groupHistory.value[runIndex.value + 1]
+  if (!entry) return ''
+  if (!prior) return t('blockcheck.noPrevious')
+  const scope = reportContext(entry.report, prior.report)
+  if (scope === 'different') return t('blockcheck.differentContext')
+  const changes = entry.report.results.filter((row, index) => probeAvailability(row) !== probeAvailability(prior.report.results[index])).length
+  return comparisonText(changes ? t('blockcheck.changedProbes', { count: changes }) : t('blockcheck.noChanges'), scope === 'configured')
+})
+const comparisonText = (message: string, unobservedPath: boolean) => unobservedPath ? `${message} · ${t('blockcheck.pathNotConfirmed')}` : message
+
 function groupSummary(id: string) {
-  const active = live.value?.group
-  if (running.value && live.value?.kind === 'progress' && active?.id === id) {
+  const active = shownProgress.value?.group
+  if (running.value && shownProgress.value?.kind === 'progress' && active?.id === id) {
     return { label: t('blockcheck.groupProgress', active), color: 'info' }
   }
   const report = lastReport(id)
   if (!report) return { label: t('blockcheck.notRun'), color: undefined }
-  if (report.job.phase !== 'COMPLETED') return { label: t(`blockcheck.phase.${report.job.phase}`), color: 'warning' }
-  const positive = report.results.filter(row => row.status === 'ok' || row.status === 'dns_response' && !!row.answerCount && !row.dnsRcode ||
-    row.status === 'http_response' && (row.httpStatus ?? 0) >= 200 && (row.httpStatus ?? 0) < 300 &&
-      (!['http-data', 'https-data'].includes(row.probe) || !!row.bodyBytes)).length
-  return { label: t('blockcheck.summary', { positive, count: report.results.length }), color: positive === report.results.length ? 'success' : 'warning' }
+  const state = summaryOf(history.value.get(id)?.[0])
+  return { label: availability(state), color: availabilityColor[state] }
 }
 
 function reason(code: string) { return te(`blockcheck.reason.${code}`) ? t(`blockcheck.reason.${code}`) : code }
@@ -301,14 +451,24 @@ function observation(row: Row) {
   if (row.dnsRcode !== undefined) return `${text} · RCODE ${row.dnsRcode} · ${row.answerCount ?? 0}`
   return text
 }
+function duration(ms: number) {
+  return ms < 1000 ? t('blockcheck.milliseconds', { ms }) : t('blockcheck.seconds', { seconds: new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(ms / 1000) })
+}
+function reportDuration(report: Report) {
+  const elapsed = Date.parse(report.finishedAt ?? '') - Date.parse(report.startedAt)
+  return Number.isFinite(elapsed) && elapsed >= 0 ? duration(elapsed) : undefined
+}
+const probeLabel = (probe: string) => te('blockcheck.probe.' + probe) ? t('blockcheck.probe.' + probe) : probe.toUpperCase()
 function rowFacts(row: Row) {
   return [row.stage && t(`blockcheck.stage.${row.stage}`), row.reason && reason(row.reason), row.dnsContext, row.dnsTransport,
     row.dnsConfiguredTransport && t('blockcheck.configuredTransport', { transport: row.dnsConfiguredTransport }),
-    row.addressFamily, row.tlsVersion, row.stage === 'transfer' && t('blockcheck.transferSample', {
+    row.attemptedAddress && t('blockcheck.attemptedAddress', { address: row.attemptedAddress }),
+    row.addressFamily && t('blockcheck.' + row.addressFamily), row.tlsVersion, row.tlsVerified && t('blockcheck.verifiedCertificate'),
+    row.stage === 'transfer' && t('blockcheck.transferSample', {
       bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'), ms: row.bodyReadMs ?? 0,
-    }), row.socket?.egress].filter(Boolean).join(' · ') || t('blockcheck.unknown')
+    }), row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
 }
-const targetLabel = (index: number) => groupHistory.value[runIndex.value]?.labels[index] ?? `#${index + 1}`
+const targetLabel = (index: number) => visibleEntry.value?.targets[index]?.name ?? `#${index + 1}`
 const findingText = (finding: Finding) => t(`blockcheck.finding.${finding.code}`)
 function findingDetails(finding: Finding) {
   const alternatives = finding.alternatives?.map(code => t(`blockcheck.alternative.${code}`)).join('; ')
@@ -319,6 +479,31 @@ function updateCatalog(value: Catalog, preferred = selected.value) {
   selected.value = value.groups.find(row => row.id === preferred)?.id ?? value.groups[0]?.id ?? ''
   const kept = new Set(value.groups.map(row => row.id))
   for (const id of history.value.keys()) if (!kept.has(id)) history.value.delete(id)
+}
+function newest<T>(items: T[], identity: (item: T) => string, startedAt: (item: T) => string): T[] {
+  return [...new Map(items.map(item => [identity(item), item])).values()].sort((a, b) => Date.parse(startedAt(b)) - Date.parse(startedAt(a)))
+}
+function restoreHistory(runs: HistoryRun[]) {
+  const known = new Set(catalog.value?.groups.map(row => row.id))
+  const reported = new Map<string, HistoryEntry[]>()
+  const aggregates: AggregateRun[] = []
+  for (const run of runs) {
+    const groups = new Map<string, HistoryEntry | undefined>((run.groupIds ?? []).map(id => [id, undefined]))
+    for (const entry of run.groups) {
+      const id = entry.report.groupId
+      groups.set(id, entry)
+      if (!known.has(id)) continue
+      const entries = reported.get(id) ?? []
+      entries.push(entry)
+      reported.set(id, entries)
+    }
+    const elapsed = Date.parse(run.finishedAt) - Date.parse(run.startedAt)
+    if (run.all && elapsed >= 0) aggregates.push({ ...run, groups, elapsed })
+  }
+  for (const [id, entries] of reported) {
+    history.value.set(id, newest([...entries, ...(history.value.get(id) ?? [])], item => item.report.job.jobId, item => item.report.startedAt).slice(0, 8))
+  }
+  aggregateRuns.value = newest([...aggregates, ...aggregateRuns.value], item => item.id, item => item.startedAt).slice(0, 8)
 }
 async function reload() {
   loadController?.abort()
@@ -332,6 +517,14 @@ async function reload() {
     options.value = value.options
     if (!value.options.ingresses?.includes(ingress.value)) ingress.value = value.options.ingresses?.[0] ?? ''
     updateCatalog(value.catalog)
+    if (value.options.history) {
+      try {
+        const runs = await loadHistory(request.signal)
+        if (!request.signal.aborted) { restoreHistory(runs); historyWarning.value = '' }
+      } catch {
+        if (!request.signal.aborted) historyWarning.value = 'blockcheck_history_unavailable'
+      }
+    }
   } catch (err) {
     if (!request.signal.aborted) error.value = errorCode(err)
   } finally {
@@ -414,30 +607,34 @@ async function showGroup(row: Group, force = false) {
   selected.value = row.id
   if (expanded.value) {
     await nextTick()
-    document.getElementById('blockcheck-group-details')?.scrollIntoView({ block: 'nearest' })
+    document.getElementById('blockcheck-group-details')?.focus()
   }
 }
 async function start(groupId?: string) {
   if (!canRun.value || !catalog.value || running.value || (!groupId && !activeGroups.value) || (groupId && selectionEmpty(groupId))) return
   const request = new AbortController()
   runController = request
-  const labels = new Map(catalog.value.groups.map(row => [row.id, row.targets.map(target => target.name)]))
+  const groups = groupId ? catalog.value.groups.filter(row => row.id === groupId) : catalog.value.groups.filter(row => !row.disabled)
+  const targets = new Map(groups.map(row => [row.id, row.targets.map(({ name, host, role }) => ({ name, host, role }))]))
+  const results = new Map<string, HistoryEntry | undefined>(groups.map(row => [row.id, undefined]))
+  const path = { mode: mode.value, ref: pathRef.value, resolver: mode.value === 'OUTBOUND' ? resolver.value ?? undefined : undefined }
+  const selectedFamily = family.value, selectedDepth = depth.value
+  const startedAt = new Date().toISOString(), started = performance.now()
   const partial = new Map<string, Row[]>()
   const findings = new Map<string, GroupFinding[]>()
   const selection = groupId === selected.value && expanded.value && enabled.value.size !== cells.value.length
     ? cells.value.filter(row => enabled.value.has(cellKey(row.target, row.probe))) : undefined
-  running.value = true; stopping.value = false; live.value = undefined; notice.value = ''; error.value = ''
+  running.value = true; stopping.value = false; shownProgress.value = undefined; currentBatches.value.clear(); notice.value = ''; error.value = ''
   let terminal: SuiteEvent | undefined
   try {
-    await streamSuite({ groupId, all: !groupId, catalogRevision: catalog.value.revision,
-      path: { mode: mode.value, ref: pathRef.value, resolver: mode.value === 'OUTBOUND' ? resolver.value ?? undefined : undefined },
-      family: family.value, depth: depth.value, cells: selection }, request.signal, event => {
+    await streamSuite({ groupId, all: !groupId, catalogRevision: catalog.value.revision, path,
+      family: selectedFamily, depth: selectedDepth, cells: selection }, request.signal, event => {
       if (runController !== request || request.signal.aborted) return
       const id = event.group?.id
       // Drop batch payloads from the last-event slot; rows live with their group.
-      live.value = { ...event, rows: undefined, findings: undefined, report: undefined }
+      shownProgress.value = { ...event, rows: undefined, findings: undefined, report: undefined }
       if (id && event.rows) {
-        const rows = partial.get(id) ?? []
+        const rows = partial.get(id) ?? reactiveRows(id)
         rows.push(...event.rows)
         partial.set(id, rows)
       }
@@ -448,8 +645,10 @@ async function start(groupId?: string) {
       }
       if (id && event.report) {
         const report: Report = { ...event.report, results: partial.get(id) ?? [], findings: findings.get(id) }
-        const entry = { report, labels: labels.get(id) ?? [] }
-        history.value.set(id, [entry, ...(history.value.get(id) ?? [])].slice(0, 3))
+        const entry = { report, targets: targets.get(id) ?? [] }
+        results.set(id, entry)
+        history.value.set(id, [entry, ...(history.value.get(id) ?? [])].slice(0, 8))
+        currentBatches.value.delete(id)
         partial.delete(id)
         findings.delete(id)
         if (id === selected.value) { runIndex.value = 0; compareIndex.value = null }
@@ -457,18 +656,30 @@ async function start(groupId?: string) {
       if (event.kind === 'finished') terminal = event
     })
     if (!request.signal.aborted && terminal) {
-      if (!groupId) lastAggregate.value = terminal
+      if (terminal.historySaved !== undefined) historyWarning.value = terminal.historySaved ? '' : 'blockcheck_history_not_saved'
+      if (!groupId) {
+        const measured = Date.parse(terminal.finishedAt ?? '') - Date.parse(terminal.startedAt ?? '')
+        const entry: AggregateRun = { id: terminal.job.operationId, groups: results, path, family: selectedFamily, depth: selectedDepth,
+          elapsed: measured >= 0 ? measured : Math.round(performance.now() - started), phase: terminal.job.phase, progress: terminal.progress,
+          startedAt: terminal.startedAt ?? startedAt }
+        aggregateRuns.value = [entry, ...aggregateRuns.value].slice(0, 8)
+        aggregateIndex.value = 0
+      }
       if (terminal.job.phase === 'CANCELED') notice.value = t('blockcheck.canceled')
       else if (terminal.job.problem) error.value = terminal.job.problem.code
     }
   } catch (err) {
     if (runController === request && !request.signal.aborted) error.value = errorCode(err)
   } finally {
-    if (runController === request) { running.value = false; stopping.value = false; live.value = undefined }
+    if (runController === request) { running.value = false; stopping.value = false; shownProgress.value = undefined; currentBatches.value.clear() }
   }
 }
+function reactiveRows(id: string): Row[] {
+  currentBatches.value.set(id, [])
+  return currentBatches.value.get(id)!
+}
 async function cancel() {
-  const request = runController, job = live.value?.job
+  const request = runController, job = shownProgress.value?.job
   if (!request || stopping.value || job?.phase === 'COMPLETED') return
   if (!job) { request.abort(); notice.value = t('blockcheck.canceled'); return }
   if (!job.cancelSupported) return
@@ -492,7 +703,8 @@ watch(runIndex, () => { compareIndex.value = null })
 watch(selected, () => { runIndex.value = 0; compareIndex.value = null })
 watch(hostId, () => {
   runController?.abort(); runController = undefined; running.value = false; stopping.value = false
-  catalog.value = undefined; options.value = undefined; history.value.clear(); live.value = undefined; lastAggregate.value = undefined
+  catalog.value = undefined; options.value = undefined; history.value.clear(); shownProgress.value = undefined
+  currentBatches.value.clear(); aggregateRuns.value = []; aggregateIndex.value = 0; historyWarning.value = ''
   expanded.value = false
   void reload()
 }, { immediate: true })
@@ -507,11 +719,33 @@ onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
 
 <style scoped>
 .blockcheck { max-width: 1240px; }
-.blockcheck-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+.blockcheck-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; }
 .blockcheck-results-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 8px 12px; }
 .blockcheck-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; }
-.blockcheck-group { display: flex; flex-direction: column; border-radius: 8px; overflow-wrap: anywhere; }
+.blockcheck-group { display: flex; flex-direction: column; border-radius: 8px; overflow-wrap: anywhere; border-color: rgba(var(--v-border-color), var(--v-border-opacity)); }
+.blockcheck-group h2 { margin: 0; font-size: 1rem; line-height: 1.4; letter-spacing: 0; }
+.blockcheck-group h2 :deep(.v-icon) { flex-shrink: 0; }
 .blockcheck-progress { border-block: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); padding-block: 8px; }
+.blockcheck-scope > summary { cursor: pointer; padding-block: 6px; }
+.result-overview { padding-block: 12px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.aggregate-history { width: min(100%, 480px); }
+.overview-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr)); gap: 8px; }
+.overview-counts > div { min-width: 0; border-inline-start: 2px solid var(--result-accent, currentColor); padding-inline-start: 8px; overflow-wrap: anywhere; }
+.overview-counts dd { margin: 0; }
+[data-availability="available"] { --result-accent: rgb(var(--v-theme-success)); }
+[data-availability="limited"] { --result-accent: rgb(var(--v-theme-warning)); }
+[data-availability="unavailable"] { --result-accent: rgb(var(--v-theme-error)); }
+[data-availability] { color: color-mix(in srgb, var(--result-accent, rgb(var(--v-theme-on-surface))) 57%, rgb(var(--v-theme-on-surface))); }
+[data-availability="unconfirmed"] { color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)); }
+.card-targets, .protocol-results, .probe-evidence, .connection-stages { list-style: none; padding: 0; }
+.card-targets li, .probe-evidence li { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.card-targets li { padding-block: 3px; }
+.protocol-results li { min-width: 0; }
+.target-result { border-block-start: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-wrap: anywhere; }
+.target-result > summary { cursor: pointer; padding-block: 10px; }
+.target-result > summary > span { margin-inline-end: 8px; }
+.connection-stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr)); gap: 6px 10px; }
+.connection-stages li { display: grid; gap: 3px; justify-items: start; border-inline-start: 2px solid var(--result-accent, currentColor); padding-inline-start: 8px; }
 .probe-table :deep(th), .probe-table :deep(td) { overflow-wrap: anywhere; }
 .probe-choice { flex: 0 0 auto; }
 .target-editor { border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }

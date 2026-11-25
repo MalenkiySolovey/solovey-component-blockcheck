@@ -131,6 +131,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	}
 	address := addresses[0]
 	row.address = address
+	row.AttemptedAddress = address.String()
 	if address.Is4() {
 		row.AddressFamily = IPv4
 	} else {

@@ -11,19 +11,24 @@ export type Cell = { target: number; probe: string }
 type Socket = { interface?: string; egress?: string; outsidePanel?: boolean }
 export type Finding = { code: string; confidence: 'observed' | 'indicative'; alternatives?: string[] }
 export type GroupFinding = Finding & { target: number; probes: string[] }
-export type Row = Cell & { targetRef: string; status: string; reason?: string; elapsedMs: number; addressFamily?: string;
+export type Row = Cell & { targetRef: string; status: string; reason?: string; elapsedMs: number; addressFamily?: string; attemptedAddress?: string;
   dnsContext?: string; dnsTransport?: string; dnsConfiguredTransport?: string; dnsRcode?: number; answerCount?: number; answerDigest?: string;
   tlsVerified?: boolean; tlsVersion?: string; httpStatus?: number; stage?: string; interpretation?: Finding;
   bodyBytes?: number; bodyReadMs?: number; bodyExpected?: number; socket?: Socket; dnsSocket?: Socket }
 type Path = { mode: Mode; ref?: string; resolver?: string }
 export type Report = { job: { jobId: string; phase: string }; path: Path; groupId: string; groupRevision: string; family: Family;
-  pathEvidence?: { host: { id: string }; generation?: string; scope: string; context?: string }; startedAt: string; results: Row[]; findings?: GroupFinding[] }
-export type Options = { outbounds: string[]; resolvers: string[]; ingresses?: string[]; unavailable: Partial<Record<Mode, string>> }
+  pathEvidence?: { host: { id: string }; generation?: string; scope: string; context?: string }; startedAt: string; finishedAt?: string; results: Row[]; findings?: GroupFinding[] }
+export type Options = { outbounds: string[]; resolvers: string[]; ingresses?: string[]; unavailable: Partial<Record<Mode, string>>; history?: boolean }
+export type HistoryEntry = { report: Report; targets: Pick<Target, 'name' | 'host' | 'role'>[] }
+export type SuiteProgress = { groupsDone: number; totalGroups: number; probesDone: number; totalProbes: number }
+export type HistoryRun = { id: string; all: boolean; groupIds: string[]; path: Path; family: Family; depth: Depth; startedAt: string;
+  finishedAt: string; phase: string; progress: SuiteProgress; groups: HistoryEntry[]; omitted?: number }
 type SuiteRequest = { groupId?: string; all?: boolean; catalogRevision: string; path: Path; family: Family; cells?: Cell[]; depth?: Depth }
 export type SuiteEvent = { kind: 'started' | 'progress' | 'group' | 'finished'; job: {
     operationId: string; phase: string; problem?: { code: string }; cancelSupported: boolean
-  }; progress: { groupsDone: number; totalGroups: number; probesDone: number; totalProbes: number };
-  group?: { id: string; completed: number; total: number }; rows?: Row[]; findings?: GroupFinding[]; report?: Omit<Report, 'results'> }
+  }; progress: SuiteProgress;
+  group?: { id: string; completed: number; total: number }; rows?: Row[]; findings?: GroupFinding[]; report?: Omit<Report, 'results'>;
+  startedAt?: string; finishedAt?: string; historySaved?: boolean }
 interface Envelope<T> { success: boolean; msg: string; obj: T }
 const base = 'api/components/blockcheck'
 const catalogBytes = 128 * 1024
@@ -46,6 +51,7 @@ export async function load(signal: AbortSignal) {
 
 export const save = (change: object) => post<Catalog>('groups', change)
 export const cancelSuite = (operationId: string, signal: AbortSignal) => post<null>('run/cancel', { operationId }, signal)
+export const loadHistory = async (signal: AbortSignal) => unwrap(await api.get<Envelope<{ runs: HistoryRun[] }>>(`${base}/history`, { signal })).runs
 
 export async function streamSuite(request: SuiteRequest, signal: AbortSignal, emit: (event: SuiteEvent) => void) {
   const { data, headers } = await api.post<ReadableStream<Uint8Array>>(`${base}/run/stream`, request, {
@@ -95,5 +101,5 @@ export function redacted(report: Report): Report {
   const { mode } = report.path
   const evidence = report.pathEvidence
   return { ...report, path: { mode }, pathEvidence: evidence && { host: evidence.host, scope: evidence.scope, generation: evidence.generation },
-    results: report.results.map(row => ({ ...row, socket: undefined, dnsSocket: undefined })) }
+    results: report.results.map(row => ({ ...row, socket: undefined, dnsSocket: undefined, attemptedAddress: undefined })) }
 }

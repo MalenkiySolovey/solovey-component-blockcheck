@@ -45,8 +45,15 @@ For observed DNS replies it distinguishes NXDOMAIN, empty replies, other DNS
 errors, addresses rejected by the Host, and different admitted address sets.
 No resolver is presumed authoritative and differences do not prove tampering.
 
-No target address, raw response, credential or packet content is put in the run
-result. For exported observations, the HTTP adapter uses `Report.Redacted` to
-also remove path context and egress details. Group exports deliberately contain
-the operator's definitions. The component uses GPL-3.0; adapted target data
-retains its MIT notice.
+The shared service view distinguishes failure from an unobserved stage. A
+proxy acknowledgement is not endpoint TCP evidence. The active administrator
+can see the admitted address actually tried, not every DNS answer or every
+server behind a name. Raw responses, credentials and packet content are never
+retained. Exports remove attempted addresses, path context and egress details.
+
+The Host adapter retains recent manual runs in its existing component-owned
+settings store (14 days, at most 512 KiB). It keeps whole group reports or notes
+that details were omitted; resolved addresses are not stored. The catalog and
+configured target labels remain user-owned. History retention does not affect
+the extent of a run, and there is no idle worker. The component uses GPL-3.0;
+adapted target data retains its MIT notice.

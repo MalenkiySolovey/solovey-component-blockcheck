@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Report, Row } from './api'
-import { comparable, dnsDifference } from './comparison'
+import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
 
 function answer(overrides: Partial<Row> = {}): Row {
   return { target: 0, targetRef: 'fixture', probe: 'dns', stage: 'dns', status: 'dns_response', elapsedMs: 1,
@@ -41,6 +41,15 @@ describe('DNS comparison', () => {
     const b = report([answer({ status: 'target_rejected', reason: 'dns_or_literal_address_not_public' }), unavailable])
     expect(comparable(a, b)).toBe(true)
     expect(comparable(report([unavailable]), report([unavailable]))).toBe(false)
+  })
+
+  it('correlates certificate evidence only to the observed target and answer set', () => {
+    const reply = answer()
+    const handshake = answer({ probe: 'tls13', status: 'ok', stage: 'tls', tlsVerified: true })
+    expect(authenticatesDNSSet(reply, report([handshake]))).toBe(true)
+    expect(authenticatesDNSSet(reply, report([{ ...handshake, answerDigest: 'other-set' }]))).toBe(false)
+    expect(authenticatesDNSSet(reply, report([{ ...handshake, targetRef: 'other-target' }]))).toBe(false)
+    expect(authenticatesDNSSet(reply, report([{ ...handshake, tlsVerified: false }]))).toBe(false)
   })
 
   it('rejects mismatched or stale report contexts', () => {
