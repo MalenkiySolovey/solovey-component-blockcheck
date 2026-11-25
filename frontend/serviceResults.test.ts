@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryEntry, Report, Row } from './api'
-import { addressResults, cardTargetLabel, compareAggregates, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetEndpoint, targetResults } from './serviceResults'
+import { addressResults, cardTargetLabel, compareAggregates, compareGroupRuns, connectionStages, probeAvailability, protocolResults, reportContext, serviceAvailability, targetEndpoint, targetResults } from './serviceResults'
 
 const pass: Row = { target: 0, targetRef: 'fixture', probe: 'https', stage: 'http', status: 'http_response', httpStatus: 204,
   tlsVersion: 'TLS 1.3', tlsVerified: true, dnsContext: 'core-policy', answerCount: 1, elapsedMs: 2 }
@@ -43,7 +43,7 @@ describe('Check All comparison', () => {
     report: { ...report, groupId: id, results: [row] }, targets: [{ name: id, host: 'fixture.example', role: 'site' }],
   })
   const run = (...entries: HistoryEntry[]) => ({
-    phase: 'COMPLETED', depth: 'quick' as const,
+    startedAt: report.startedAt, phase: 'COMPLETED', depth: 'quick' as const,
     progress: { groupsDone: entries.length, totalGroups: entries.length, probesDone: entries.length, totalProbes: entries.length },
     groups: new Map(entries.map(value => [value.report.groupId, value])),
   })
@@ -51,11 +51,11 @@ describe('Check All comparison', () => {
   it('shows only changed groups, including when the number of problems stays the same', () => {
     const before = run(entry('recovered', failed), entry('failed', pass), entry('same', pass))
     const after = run(entry('failed', failed), entry('same', pass), entry('recovered', pass))
-    expect(compareAggregates(after, before)).toEqual({ kind: 'comparable', unobservedPath: true, changes: [
+    expect(compareAggregates(after, [before])).toEqual({ kind: 'comparable', previousStartedAt: before.startedAt, unobservedPath: true, changes: [
       { id: 'failed', before: 'available', after: 'unavailable' },
       { id: 'recovered', before: 'unavailable', after: 'available' },
     ] })
-    expect(compareAggregates(after, after)).toMatchObject({ kind: 'comparable', changes: [] })
+    expect(compareAggregates(after, [after])).toMatchObject({ kind: 'comparable', changes: [] })
     expect(compareAggregates(after)).toEqual({ kind: 'noPrevious' })
   })
 
@@ -69,7 +69,27 @@ describe('Check All comparison', () => {
       { ...after, progress: { ...after.progress, probesDone: 1 } },
       { ...after, groups: new Map([['changed', entry('changed', pass)], ['same', undefined]]) },
       run(entry('changed', pass), entry('other', pass)), run(entry('changed', pass), changedGeneration),
-    ]) expect(compareAggregates(different, before)).toEqual({ kind: 'differentContext' })
+    ]) expect(compareAggregates(different, [before])).toEqual({ kind: 'differentContext' })
+  })
+
+  it('uses the newest comparable earlier run, not an intervening cancellation, omission or different path', () => {
+    const current = run(entry('site', pass))
+    const earlier = { ...run(entry('site', failed)), startedAt: '2026-11-25T16:40:00Z' }
+    const otherPath = entry('site', pass)
+    otherPath.report.path = { mode: 'OUTBOUND', ref: 'other' }
+    const skipped = [run(otherPath), { ...current, omitted: 1 }, { ...current, phase: 'CANCELED' }]
+    expect(compareAggregates(current, skipped)).toEqual({ kind: 'differentContext' })
+    expect(compareAggregates(current, [...skipped, earlier, current])).toMatchObject({
+      kind: 'comparable', previousStartedAt: earlier.startedAt, changes: [{ id: 'site', before: 'unavailable', after: 'available' }],
+    })
+
+    const priorReport = { ...report, startedAt: earlier.startedAt, results: [failed] }
+    const changedRoute = { ...report, pathEvidence: { ...report.pathEvidence!, generation: 'other' } }
+    const canceled = { ...report, job: { ...report.job, phase: 'CANCELED' } }
+    expect(compareGroupRuns(report, [changedRoute, canceled])).toEqual({ kind: 'differentContext' })
+    expect(compareGroupRuns(report, [changedRoute, canceled, priorReport])).toEqual({
+      kind: 'comparable', previousStartedAt: earlier.startedAt, changes: 1, unobservedPath: true,
+    })
   })
 })
 
