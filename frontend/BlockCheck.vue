@@ -286,7 +286,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
 import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
-import { addressResults, availabilityColor, availabilityStates, cardTargetLabel, compareAggregates, groupAvailability, probeAvailability, protocolResults, reportContext, targetEndpoint, targetResults, type Availability } from './serviceResults'
+import { addressResults, availabilityColor, availabilityStates, cardTargetLabel, compareAggregates, compareGroupRuns, groupAvailability, probeAvailability, protocolResults, reportContext, targetEndpoint, targetResults, type Availability } from './serviceResults'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -419,24 +419,23 @@ const aggregateContext = computed(() => {
   return run ? [runDate(run.startedAt), hostId.value === 'local' ? t('blockcheck.local') : hostId.value, pathLabel(run.path),
     t('blockcheck.' + run.family), t('blockcheck.' + run.depth)].join(' · ') : ''
 })
-const aggregateComparison = computed(() => compareAggregates(aggregateRuns.value[aggregateIndex.value], aggregateRuns.value[aggregateIndex.value + 1]))
+const aggregateComparison = computed(() => compareAggregates(aggregateRuns.value[aggregateIndex.value], aggregateRuns.value.slice(aggregateIndex.value + 1)))
 const aggregateChanges = computed(() => aggregateComparison.value.kind === 'comparable' ? aggregateComparison.value.changes : [])
 const aggregateChange = computed(() => {
   const result = aggregateComparison.value
   if (result.kind !== 'comparable') return t(`blockcheck.${result.kind}`)
   const changed = result.changes.length
-  return comparisonText(changed ? t('blockcheck.changedGroups', { count: changed }) : t('blockcheck.noChanges'), result.unobservedPath)
+  return comparisonText(changed ? t('blockcheck.changedGroups', { count: changed }) : t('blockcheck.noChanges'), result)
 })
 const previousGroupChange = computed(() => {
-  const entry = visibleEntry.value, prior = groupHistory.value[runIndex.value + 1]
-  if (!entry) return ''
-  if (!prior) return t('blockcheck.noPrevious')
-  const scope = reportContext(entry.report, prior.report)
-  if (scope === 'different') return t('blockcheck.differentContext')
-  const changes = entry.report.results.filter((row, index) => probeAvailability(row) !== probeAvailability(prior.report.results[index])).length
-  return comparisonText(changes ? t('blockcheck.changedProbes', { count: changes }) : t('blockcheck.noChanges'), scope === 'configured')
+  if (!visibleReport.value) return ''
+  const result = compareGroupRuns(visibleReport.value, groupHistory.value.slice(runIndex.value + 1).map(entry => entry.report))
+  if (result.kind !== 'comparable') return t(`blockcheck.${result.kind}`)
+  return comparisonText(result.changes ? t('blockcheck.changedProbes', { count: result.changes }) : t('blockcheck.noChanges'), result)
 })
-const comparisonText = (message: string, unobservedPath: boolean) => unobservedPath ? `${message} · ${t('blockcheck.pathNotConfirmed')}` : message
+const comparisonText = (message: string, result: { previousStartedAt: string; unobservedPath: boolean }) => [message,
+  t('blockcheck.comparedWithRun', { date: runDate(result.previousStartedAt) }),
+  result.unobservedPath && t('blockcheck.pathNotConfirmed')].filter(Boolean).join(' · ')
 
 function groupSummary(id: string) {
   const active = shownProgress.value?.group

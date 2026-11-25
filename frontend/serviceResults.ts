@@ -70,32 +70,57 @@ export function groupAvailability(entry?: HistoryEntry): Availability {
   return entry ? serviceAvailability(targetResults(entry.targets.length, entry.report.results), entry.report.job.phase === 'COMPLETED') : 'unconfirmed'
 }
 
-type AggregateEvidence = Pick<HistoryRun, 'phase' | 'depth' | 'omitted' | 'progress'> & {
+type AggregateEvidence = Pick<HistoryRun, 'startedAt' | 'phase' | 'depth' | 'omitted' | 'progress'> & {
   groups: ReadonlyMap<string, HistoryEntry | undefined>
 }
 type AvailabilityChange = { id: string; before: Availability; after: Availability }
-type AggregateComparison = { kind: 'noPrevious' | 'differentContext' } |
-  { kind: 'comparable'; changes: AvailabilityChange[]; unobservedPath: boolean }
+type PreviousComparison<T> = { kind: 'noPrevious' | 'differentContext' } |
+  ({ kind: 'comparable'; previousStartedAt: string; unobservedPath: boolean } & T)
 
-export function compareAggregates(current?: AggregateEvidence, previous?: AggregateEvidence): AggregateComparison {
-  if (!previous) return { kind: 'noPrevious' }
-  if (!current || current.depth !== previous.depth || current.groups.size !== previous.groups.size ||
+function compareEarlier<T extends { startedAt: string }, C extends { unobservedPath: boolean }>(
+  current: T | undefined, earlier: readonly T[], compare: (current: T, prior: T) => C | undefined,
+): PreviousComparison<C> {
+  if (!earlier.length) return { kind: 'noPrevious' }
+  if (current) {
+    for (const prior of earlier) {
+      const result = compare(current, prior)
+      if (result) return { ...result, kind: 'comparable', previousStartedAt: prior.startedAt }
+    }
+  }
+  return { kind: 'differentContext' }
+}
+
+function compareAggregatePair(current: AggregateEvidence, previous: AggregateEvidence) {
+  if (current.depth !== previous.depth || current.groups.size !== previous.groups.size ||
     [current, previous].some(run => run.omitted || run.phase !== 'COMPLETED' || !run.groups.size ||
       run.progress.groupsDone !== run.progress.totalGroups || run.progress.totalGroups !== run.groups.size ||
-      run.progress.probesDone !== run.progress.totalProbes)) return { kind: 'differentContext' }
+      run.progress.probesDone !== run.progress.totalProbes)) return
 
   const changes: AvailabilityChange[] = []
   let unobservedPath = false
   for (const [id, entry] of current.groups) {
     const prior = previous.groups.get(id)
-    if (!entry || !prior) return { kind: 'differentContext' }
+    if (!entry || !prior) return
     const scope = reportContext(entry.report, prior.report)
-    if (scope === 'different') return { kind: 'differentContext' }
+    if (scope === 'different') return
     unobservedPath ||= scope === 'configured'
     const before = groupAvailability(prior), after = groupAvailability(entry)
     if (before !== after) changes.push({ id, before, after })
   }
-  return { kind: 'comparable', changes, unobservedPath }
+  return { changes, unobservedPath }
+}
+
+export function compareAggregates(current?: AggregateEvidence, earlier: readonly AggregateEvidence[] = []) {
+  return compareEarlier(current, earlier, compareAggregatePair)
+}
+
+export function compareGroupRuns(current?: Report, earlier: readonly Report[] = []) {
+  return compareEarlier(current, earlier, (report, prior) => {
+    const scope = reportContext(report, prior)
+    if (scope === 'different') return
+    const changes = report.results.filter((row, index) => probeAvailability(row) !== probeAvailability(prior.results[index])).length
+    return { changes, unobservedPath: scope === 'configured' }
+  })
 }
 
 export const stageKeys = ['dns', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
