@@ -92,6 +92,9 @@ type Path struct {
 	Current  func(context.Context) error
 	Resolve  func(context.Context, string, Family, Probe) (Resolution, error)
 	DialTCP  func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
+	// A routed stream may need client bytes before routing and egress are
+	// observable. The observer does not turn tunnel setup into a TCP result.
+	DialNamedStream func(context.Context, string, netip.AddrPort) (net.Conn, func() (SocketEvidence, error), error)
 	// DialUDP returns a connected datagram transport to the admitted destination.
 	DialUDP func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
 }

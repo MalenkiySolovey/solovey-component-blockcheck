@@ -74,7 +74,10 @@ export default { blockcheck: {
   reason: {
     stun_request_unavailable: 'The probe could not build a STUN request.', stun_invalid_response: 'The STUN reply was not valid for this request.',
     stun_binding_error: 'The STUN server replied with a Binding error.',
-    panel_ingress_not_qualified: 'No authorized ingress can verify both the selected context and a policy-checked destination.',
+    panel_ingress_not_qualified: 'No active HTTP or mixed ingress accepts a local anonymous connection without TLS or an ingress detour.',
+    panel_final_address_unverified: 'The route did not resolve this hostname to exactly one policy-checked address before dispatch.',
+    panel_final_egress_unverified: 'The route selected an outbound that cannot yet verify the final destination for this probe.',
+    panel_route_denied: 'Core routing rejected the stream or redirected it to a non-stream action.',
     host_baseline_not_observable: 'The host cannot verify that this flow and its DNS are outside Solovey processing.',
     outbound_not_available: 'The selected outbound is not available in the running Core.', core_generation_changed: 'The active Core changed during the run.',
     dns_transport_not_available: 'This transport is not available on the selected DNS server.',
