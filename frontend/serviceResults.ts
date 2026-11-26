@@ -123,7 +123,7 @@ export function compareGroupRuns(current?: Report, earlier: readonly Report[] = 
   })
 }
 
-export const stageKeys = ['dns', 'route', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
+export const stageKeys = ['dns', 'route', 'icmp', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
 export type Stage = typeof stageKeys[number]
 
 function stageFact(row: Row, stage: Stage): Availability | undefined {
@@ -150,7 +150,7 @@ function requestedStage(probe: string): Stage | undefined {
   if (tls.has(probe)) return 'tls'
   if (web.has(probe)) return 'http'
   if (transfer.has(probe)) return 'transfer'
-  if (probe === 'tcp' || probe === 'quic' || probe === 'stun') return probe
+  if (probe === 'tcp' || probe === 'quic' || probe === 'stun' || probe === 'icmp') return probe
 }
 
 export function addressResults(rows: readonly Row[]) {
