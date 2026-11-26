@@ -45,6 +45,11 @@ On the same kind of connected UDP path, `stun` sends a bounded Binding request
 to the configured endpoint on UDP 3478 or 19302. A matching valid response
 proves only that the endpoint answered this request, not that calls work. It
 does not follow alternate servers or retain the reflected client address.
+For `icmp`, the selected Host adapter must supply an explicit Echo capability.
+The Linux ordinary-Host adapter can use an unprivileged datagram Echo socket
+when permitted by the kernel. No raw socket or substitute path is used. A
+missing reply is only reported after the request was sent on an observed path;
+it is not evidence that the service itself is unreachable.
 The host must qualify each mode separately. HTTP responses and DNS status codes
 are observations, not proof of censorship or full service availability. As in
 the frozen ZapretGUI diagnostics, the report distinguishes resolution,

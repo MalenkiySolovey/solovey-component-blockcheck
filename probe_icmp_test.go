@@ -46,7 +46,7 @@ func TestICMPEchoUsesOnlyTheSelectedCapability(t *testing.T) {
 				}
 			}
 			performProbe(context.Background(), &row, Target{Host: addr.String()}, path, IPv4, func(netip.Addr) bool { return tc.admitted })
-			if row.Status != tc.want || (row.Socket != nil) != tc.sent || (row.AttemptedAddress != "") != tc.sent || calls > 1 ||
+			if row.Status != tc.want || (row.Stage == StageICMP) != tc.sent || (row.Socket != nil) != tc.sent || (row.AttemptedAddress != "") != tc.sent || calls > 1 ||
 				(calls == 1) != (tc.provider && tc.admitted) {
 				t.Fatalf("result = %+v, calls = %d", row, calls)
 			}

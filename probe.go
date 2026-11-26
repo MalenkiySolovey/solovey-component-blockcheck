@@ -254,7 +254,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 }
 
 func performICMPEcho(ctx context.Context, path Path, row *Result, address netip.Addr) {
-	row.Stage = StageICMP
+	row.Stage = ""
 	evidence, err := path.EchoICMP(ctx, address)
 	switch {
 	case errors.Is(err, ErrICMPEchoUnavailable) || errors.Is(err, ErrNoProbeCapability):
@@ -266,6 +266,7 @@ func performICMPEcho(ctx context.Context, path Path, row *Result, address netip.
 	case errors.Is(err, ErrBaselineUnobservable) || path.Evidence.Mode == HostBaseline && !outsidePanel(evidence):
 		row.Status, row.Reason = Unobservable, string(ErrBaselineUnobservable)
 	default:
+		row.Stage = StageICMP
 		row.Socket = socketObservation(evidence)
 		row.address, row.AttemptedAddress = address, address.String()
 		row.AddressFamily = IPv6
