@@ -202,6 +202,10 @@ export function protocolResults(rows: readonly Row[]) {
   })
 }
 
+export function baselineInterface(socket: Row['socket']): string | undefined {
+  return socket?.outsidePanel && socket.interface ? socket.interface : undefined
+}
+
 export function reportContext(a: Report, b: Report): 'observed' | 'configured' | 'different' {
   const first = a.pathEvidence, second = b.pathEvidence
   if (!first || !second || a.job.phase !== 'COMPLETED' || b.job.phase !== 'COMPLETED' || first.host.id !== second.host.id ||
@@ -216,9 +220,20 @@ export function reportContext(a: Report, b: Report): 'observed' | 'configured' |
         row.dnsTransport && other.dnsTransport && row.dnsTransport !== other.dnsTransport) return 'different'
     const socket = dns.has(row.probe) ? row.dnsSocket : row.socket
     const otherSocket = dns.has(row.probe) ? other.dnsSocket : other.socket
+    if (a.path.mode === 'HOST_BASELINE') {
+      const pairs = [[socket, otherSocket]]
+      if (!dns.has(row.probe) && (row.dnsSocket || other.dnsSocket || row.dnsContext || other.dnsContext)) {
+        pairs.push([row.dnsSocket, other.dnsSocket])
+      }
+      for (const [before, after] of pairs) {
+        const left = baselineInterface(before), right = baselineInterface(after)
+        if (left && right && left !== right) return 'different'
+        if (!left || !right) observed = false
+      }
+      continue
+    }
     if (socket?.egress && otherSocket?.egress && socket.egress !== otherSocket.egress) return 'different'
-    if (a.path.mode === 'HOST_BASELINE' ? !socket?.outsidePanel || !otherSocket?.outsidePanel :
-      !socket?.egress || !otherSocket?.egress || socket.routeSelectionOnly || otherSocket.routeSelectionOnly) observed = false
+    if (!socket?.egress || !otherSocket?.egress || socket.routeSelectionOnly || otherSocket.routeSelectionOnly) observed = false
   }
   return observed && a.results.length ? 'observed' : 'configured'
 }

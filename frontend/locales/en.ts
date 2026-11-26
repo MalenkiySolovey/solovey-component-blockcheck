@@ -15,6 +15,8 @@ export default { blockcheck: {
   changedGroupDetails: 'Changes since the previous run', groupTransition: '{before} → {after}',
   targetResults: 'Target results', moreTargets: 'Other targets: {count}', protocolResults: 'Protocol results',
   connectionStages: 'Connection stages', compactComparison: '{path}: {result} · {duration}',
+  hostDNSInterface: 'Host DNS via {interface}', hostTargetInterface: 'Host connection via {interface}',
+  hostSystemDNS: 'System DNS', hostSocketScope: 'Ordinary host socket',
   protocol: { dns: 'DNS', tcp: 'TCP', tls: 'TLS', http: 'HTTP/S', chrome: 'Chrome TLS', quic: 'QUIC / HTTP/3', transfer: 'Transfer', stun: 'Voice (STUN)', icmp: 'ICMP' },
   probe: { tls12: 'TLS 1.2', tls13: 'TLS 1.3', http3: 'HTTP/3', 'http-data': 'HTTP transfer', 'https-data': 'HTTPS transfer', 'https-chrome': 'HTTPS with Chrome TLS' },
   tlsProfile: { 'chrome-133': 'Chrome 133 TLS profile' },

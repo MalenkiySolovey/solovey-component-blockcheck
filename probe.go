@@ -59,6 +59,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 			return
 		}
 		resolved, err = path.Resolve(ctx, target.Host, family, resolverProbe)
+		if errors.Is(err, ErrResolverUnsupported) || errors.Is(err, ErrNoProbeCapability) {
+			row.Status, row.Reason = Unsupported, pathReason(err)
+			return
+		}
 		if path.Evidence.Mode == HostBaseline && !outsidePanel(resolved.Socket) {
 			row.Status, row.Reason = Unobservable, string(ErrBaselineUnobservable)
 			return
@@ -79,9 +83,7 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		}
 		if err != nil {
 			row.Status = classify(err, ResolutionFailed)
-			if errors.Is(err, ErrResolverUnsupported) || errors.Is(err, ErrNoProbeCapability) {
-				row.Status, row.Reason = Unsupported, pathReason(err)
-			} else if errors.Is(err, ErrBaselineUnobservable) || errors.Is(err, ErrGenerationChanged) {
+			if errors.Is(err, ErrBaselineUnobservable) || errors.Is(err, ErrGenerationChanged) {
 				row.Status, row.Reason = Unobservable, pathReason(err)
 			}
 			return

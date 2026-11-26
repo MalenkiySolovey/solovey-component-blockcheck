@@ -181,8 +181,8 @@
       <details class="mb-2">
         <summary>{{ t('blockcheck.details') }}</summary>
         <dl class="detail-list mt-2">
-          <dt>{{ t('blockcheck.path') }}</dt><dd>{{ pathTitle(visibleReport) }} · {{ visibleReport.pathEvidence?.scope ?? t('blockcheck.unknown') }}</dd>
-          <dt>{{ t('blockcheck.observed') }}</dt><dd>{{ visibleReport.pathEvidence?.context ?? t('blockcheck.unknown') }}</dd>
+          <dt>{{ t('blockcheck.path') }}</dt><dd>{{ pathTitle(visibleReport) }} · {{ pathScope(visibleReport.pathEvidence?.scope) ?? t('blockcheck.unknown') }}</dd>
+          <dt>{{ t('blockcheck.observed') }}</dt><dd>{{ dnsContextTitle(visibleReport.pathEvidence?.context) ?? t('blockcheck.unknown') }}</dd>
           <dt>{{ t('blockcheck.revision') }}</dt><dd>{{ visibleReport.pathEvidence?.generation ?? t('blockcheck.unknown') }}</dd>
           <dt>{{ t('blockcheck.family') }}</dt><dd>{{ t('blockcheck.' + visibleReport.family) }}</dd>
           <template v-if="reportDuration(visibleReport)"><dt>{{ t('blockcheck.duration') }}</dt><dd>{{ reportDuration(visibleReport) }}</dd></template>
@@ -299,7 +299,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
 import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
-import { addressResults, availabilityColor, availabilityStates, cardTargetLabel, compareAggregates, compareGroupRuns, groupAvailability, probeAvailability, protocolResults, reportContext, targetEndpoint, targetResults, type Availability } from './serviceResults'
+import { addressResults, availabilityColor, availabilityStates, baselineInterface, cardTargetLabel, compareAggregates, compareGroupRuns, groupAvailability, probeAvailability, protocolResults, reportContext, targetEndpoint, targetResults, type Availability } from './serviceResults'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -373,6 +373,8 @@ const detailAvailability = computed(() => groupAvailability(visibleEntry.value))
 const pathLabel = (path: Report['path']) => [t(`blockcheck.${path.mode}`), path.ref,
   path.resolver && t('blockcheck.comparisonResolver', { resolver: path.resolver })].filter(Boolean).join(' · ')
 const pathTitle = (report: Report) => pathLabel(report.path)
+const pathScope = (scope?: string) => scope === 'ordinary-host-socket' ? t('blockcheck.hostSocketScope') : scope
+const dnsContextTitle = (context?: string) => context === 'host-system-dns' ? t('blockcheck.hostSystemDNS') : context
 const runDate = (value: string) => new Date(value).toLocaleString(locale.value, { dateStyle: 'short', timeStyle: 'short' })
 const cardRunTitle = (report: Report) => [runDate(report.startedAt), report.path.ref ?? t(`blockcheck.${report.path.mode}`)].join(' · ')
 const runTitle = (report: Report) => [runDate(report.startedAt), pathTitle(report),
@@ -482,8 +484,10 @@ function reportDuration(report: Report) {
 }
 const probeLabel = (probe: string) => te('blockcheck.probe.' + probe) ? t('blockcheck.probe.' + probe) : probe.toUpperCase()
 function rowFacts(row: Row, includeAddress = true) {
-  return [row.stage && t(`blockcheck.stage.${row.stage}`), row.reason && reason(row.reason), row.dnsContext, row.dnsTransport,
+  const dnsInterface = baselineInterface(row.dnsSocket), targetInterface = baselineInterface(row.socket)
+  return [row.stage && t(`blockcheck.stage.${row.stage}`), row.reason && reason(row.reason), dnsContextTitle(row.dnsContext), row.dnsTransport,
     row.dnsConfiguredTransport && t('blockcheck.configuredTransport', { transport: row.dnsConfiguredTransport }),
+    dnsInterface && t('blockcheck.hostDNSInterface', { interface: dnsInterface }),
     includeAddress && row.attemptedAddress && t('blockcheck.attemptedAddress', { address: row.attemptedAddress }),
     row.addressFamily && t('blockcheck.' + row.addressFamily), row.tlsVersion, row.tlsVerified && t('blockcheck.verifiedCertificate'),
     row.tlsProfile === 'chrome-133' && t('blockcheck.tlsProfile.chrome-133'), row.httpProtocol,
@@ -493,7 +497,7 @@ function rowFacts(row: Row, includeAddress = true) {
     }), row.bodyReadMs !== undefined && t('blockcheck.transferReadTime', { duration: duration(row.bodyReadMs) }),
     row.bodyMaxGapMs !== undefined && t('blockcheck.transferMaxGap', { duration: duration(row.bodyMaxGapMs) }),
     row.socket?.egress && (row.socket.routeSelectionOnly ? t('blockcheck.selectedEgress', { egress: row.socket.egress }) : row.socket.egress),
-    row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
+    targetInterface && t('blockcheck.hostTargetInterface', { interface: targetInterface })].filter(Boolean).join(' · ') || t('blockcheck.unknown')
 }
 const targetLabel = (index: number) => {
   const target = visibleEntry.value?.targets[index]

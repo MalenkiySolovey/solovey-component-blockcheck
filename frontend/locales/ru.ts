@@ -15,6 +15,8 @@ export default { blockcheck: {
   changedGroupDetails: 'Изменения с предыдущей проверки', groupTransition: '{before} → {after}',
   targetResults: 'Результаты по целям', moreTargets: 'Других целей: {count}', protocolResults: 'Результаты по протоколам',
   connectionStages: 'Этапы соединения', compactComparison: '{path}: {result} · {duration}',
+  hostDNSInterface: 'DNS хоста: {interface}', hostTargetInterface: 'Соединение хоста: {interface}',
+  hostSystemDNS: 'Системный DNS', hostSocketScope: 'Обычный сокет хоста',
   protocol: { dns: 'DNS', tcp: 'TCP', tls: 'TLS', http: 'HTTP/S', chrome: 'TLS Chrome', quic: 'QUIC / HTTP/3', transfer: 'Передача', stun: 'Звонки (STUN)', icmp: 'ICMP' },
   probe: { tls12: 'TLS 1.2', tls13: 'TLS 1.3', http3: 'HTTP/3', 'http-data': 'Передача по HTTP', 'https-data': 'Передача по HTTPS', 'https-chrome': 'HTTPS с TLS-профилем Chrome' },
   tlsProfile: { 'chrome-133': 'TLS-профиль Chrome 133' },
