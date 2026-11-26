@@ -2,6 +2,7 @@ export default { blockcheck: {
   title: 'BlockCheck', host: 'Хост', local: 'Локальный хост', path: 'Путь', group: 'Группа сервисов', family: 'Семейство адресов',
   resolver: 'DNS-сервер (необязательно)', outbound: 'Применённый исходящий', ingress: 'Применённый входящий', cancel: 'Отмена', reload: 'Обновить',
   check: 'Проверить', checkAll: 'Проверить все группы', groupActions: 'Действия для группы {group}', groupDetails: 'Подробности группы',
+  backToGroups: 'К списку групп',
   include: 'Включить в общую проверку', exclude: 'Исключить из общей проверки', excluded: 'Вне общей проверки',
   targetsCount: 'Целей: {count}', notRun: 'Не проверялась', summary: 'Успешных проб: {positive} из {count}',
   availability: { available: 'Доступно', limited: 'С ограничениями', unavailable: 'Недоступно', unconfirmed: 'Не подтверждено' },
