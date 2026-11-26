@@ -156,4 +156,19 @@ describe('protocol observations', () => {
     expect(reportContext(report, { ...report, job: { ...report.job, phase: 'CANCELED' } })).toBe('different')
     expect(reportContext(reached, { ...report, results: [{ ...pass, socket: { egress: 'two' } }] })).toBe('different')
   })
+
+  it('compares Host DNS and target interfaces independently', () => {
+    const observed = (name: string) => ({ interface: name, outsidePanel: true })
+    const row = { ...pass, dnsSocket: observed('dns0'), socket: observed('eth0') }
+    const baseline: Report = { ...report, path: { mode: 'HOST_BASELINE' },
+      pathEvidence: { host: { id: 'local' }, scope: 'ordinary-host-socket' }, results: [row] }
+    const withRow = (result: Row): Report => ({ ...baseline, results: [result] })
+    expect(reportContext(baseline, baseline)).toBe('observed')
+    expect(reportContext(baseline, withRow({ ...row, socket: observed('eth1') }))).toBe('different')
+    expect(reportContext(baseline, withRow({ ...row, dnsSocket: observed('dns1') }))).toBe('different')
+    expect(reportContext(baseline, withRow({ ...row, dnsSocket: undefined }))).toBe('configured')
+    expect(reportContext(baseline, withRow({ ...row, socket: { ...row.socket, outsidePanel: false } }))).toBe('configured')
+    const dns = { ...row, probe: 'dns', socket: undefined }
+    expect(reportContext(withRow(dns), withRow({ ...dns, dnsSocket: observed('dns1') }))).toBe('different')
+  })
 })

@@ -121,6 +121,21 @@ func TestDNSNegativeResponseAndWrongTransportAreNotProof(t *testing.T) {
 	}
 }
 
+func TestBaselineDistinguishesUnsupportedDNSFromMissingObservation(t *testing.T) {
+	c, cat, req, path := fixture(t, HostBaseline, DNS, DoH)
+	path.Resolve = func(_ context.Context, _ string, _ Family, probe Probe) (Resolution, error) {
+		if probe == DoH {
+			return Resolution{}, ErrResolverUnsupported
+		}
+		return Resolution{}, ErrBaselineUnobservable
+	}
+	result := runFixture(t, c, cat, req, path).Results
+	if dns, doh := result[0], result[1]; dns.Status != Unobservable || dns.Reason != string(ErrBaselineUnobservable) ||
+		doh.Status != Unsupported || doh.Reason != string(ErrResolverUnsupported) || doh.Proof != nil {
+		t.Fatalf("unsupported Host resolver transport conflated with missing path evidence: %+v", result)
+	}
+}
+
 func TestConfiguredDNSAndProxyAcknowledgementAreNotEndpointEvidence(t *testing.T) {
 	c, cat, req, path := fixture(t, Outbound, DNSUDP, TCP)
 	code := uint16(0)
