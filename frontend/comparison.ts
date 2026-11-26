@@ -1,4 +1,5 @@
 import type { Report, Row } from './api'
+import { probeAvailability, reportContext } from './serviceResults'
 
 const observed = new Set(['ok', 'dns_response', 'http_response', 'resolution_failed', 'timeout', 'connection_refused',
   'connection_failed', 'connection_reset', 'stream_closed', 'tls_failed', 'quic_failed', 'certificate_invalid', 'protocol_error'])
@@ -17,6 +18,28 @@ export function comparable(a: Report, b: Report): boolean {
     const other = b.results[index]
     return observed.has(row.status) && observed.has(other.status) || dnsDifference(row, other) !== undefined
   })
+}
+
+type Outcome = 'same' | 'different' | 'unconfirmed'
+
+function compareProbe(a: Row, b: Row): Outcome {
+  if (dnsDifference(a, b)) return 'different'
+  const first = probeAvailability(a), second = probeAvailability(b)
+  if (first === 'unconfirmed' || second === 'unconfirmed') return 'unconfirmed'
+  const bothDiffer = <T>(x: T | undefined, y: T | undefined) => x !== undefined && y !== undefined && x !== y
+  return first !== second || a.status !== b.status || bothDiffer(a.stage, b.stage) ||
+    bothDiffer(a.dnsRcode, b.dnsRcode) || bothDiffer(a.tlsVersion, b.tlsVersion) ||
+    bothDiffer(a.httpStatus, b.httpStatus) || bothDiffer(a.httpProtocol, b.httpProtocol) ? 'different' : 'same'
+}
+
+export function compareProbeResults(a: Report, b: Report) {
+  if (a.job.phase !== 'COMPLETED' || b.job.phase !== 'COMPLETED' ||
+      (reportContext(a, b) === 'different' && !comparable(a, b))) return
+
+  const outcomes = a.results.map((row, index) => compareProbe(row, b.results[index]))
+  const matched = outcomes.filter(outcome => outcome !== 'unconfirmed').length
+  const differed = outcomes.filter(outcome => outcome === 'different').length
+  return { outcomes, matched, differed, total: outcomes.length }
 }
 
 type DNSDifference = 'name_error' | 'answer_rejected' | 'empty_answer' | 'error_response' | 'answer_sets'
