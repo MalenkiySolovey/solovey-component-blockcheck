@@ -130,12 +130,25 @@
         </template>
         <div class="d-flex flex-wrap align-center ga-2 mt-auto">
           <v-btn size="small" variant="tonal" prepend-icon="lucide:play" :disabled="!canRun || running || selectionEmpty(row.id)" @click="start(row.id)">{{ t('blockcheck.check') }}</v-btn>
-          <v-btn size="small" variant="text" :append-icon="expanded && selected === row.id ? 'lucide:chevron-up' : 'lucide:chevron-down'"
+          <v-btn :id="groupDetailsButtonId(row.id)" size="small" variant="text" :append-icon="expanded && selected === row.id ? 'lucide:chevron-up' : 'lucide:chevron-down'"
             :aria-expanded="expanded && selected === row.id" @click="showGroup(row)">{{ t('blockcheck.groupDetails') }}</v-btn>
         </div>
       </v-card>
     </div>
-    <h2 v-if="expanded && group" id="blockcheck-group-details" tabindex="-1" class="text-h6 mt-5 mb-2">{{ group.name }}</h2>
+    <header v-if="expanded && group" class="blockcheck-detail-header mt-5 mb-2">
+      <div class="d-flex align-center justify-space-between flex-wrap ga-2">
+        <div class="d-flex align-center flex-wrap ga-2">
+          <h2 id="blockcheck-group-details" tabindex="-1" class="d-flex align-center ga-2 text-h6">
+            <v-icon :icon="groupIcon(group)" size="20" aria-hidden="true" /><span>{{ group.name }}</span>
+          </h2>
+          <v-chip v-if="visibleEntry" :color="availabilityColor[detailAvailability]" density="compact" size="small" variant="tonal">
+            {{ availability(detailAvailability) }}
+          </v-chip>
+        </div>
+        <v-btn size="small" variant="text" prepend-icon="lucide:arrow-left" @click="closeGroup">{{ t('blockcheck.backToGroups') }}</v-btn>
+      </div>
+      <p v-if="visibleReport" class="text-caption text-medium-emphasis mt-1">{{ runTitle(visibleReport) }}</p>
+    </header>
     <details v-if="expanded && group" :key="group.id" :open="!visibleReport" class="blockcheck-scope">
       <summary>{{ t('blockcheck.probeSelection') }}</summary>
       <v-table class="probe-table" density="compact">
@@ -356,6 +369,7 @@ const groupHistory = computed(() => history.value.get(selected.value) ?? [])
 const lastReport = (id: string) => history.value.get(id)?.[0]?.report
 const visibleEntry = computed(() => groupHistory.value[runIndex.value])
 const visibleReport = computed(() => visibleEntry.value?.report)
+const detailAvailability = computed(() => groupAvailability(visibleEntry.value))
 const pathLabel = (path: Report['path']) => [t(`blockcheck.${path.mode}`), path.ref,
   path.resolver && t('blockcheck.comparisonResolver', { resolver: path.resolver })].filter(Boolean).join(' · ')
 const pathTitle = (report: Report) => pathLabel(report.path)
@@ -617,13 +631,19 @@ function download(row: Group) {
   link.href = url; link.download = `${row.id}.blockcheck.json`; link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+const groupDetailsButtonId = (id: string) => `blockcheck-details-${id}`
 async function showGroup(row: Group, force = false) {
-  expanded.value = force || row.id !== selected.value || !expanded.value
+  if (!force && expanded.value && selected.value === row.id) return closeGroup()
   selected.value = row.id
-  if (expanded.value) {
-    await nextTick()
-    document.getElementById('blockcheck-group-details')?.focus()
-  }
+  expanded.value = true
+  await nextTick()
+  document.getElementById('blockcheck-group-details')?.focus()
+}
+async function closeGroup() {
+  const id = selected.value
+  expanded.value = false
+  await nextTick()
+  document.getElementById(groupDetailsButtonId(id))?.focus()
 }
 async function start(groupId?: string) {
   if (!canRun.value || !catalog.value || running.value || (!groupId && !activeGroups.value) || (groupId && selectionEmpty(groupId))) return
@@ -740,6 +760,9 @@ onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
 .blockcheck-group { display: flex; flex-direction: column; border-radius: 8px; overflow-wrap: anywhere; border-color: rgba(var(--v-border-color), var(--v-border-opacity)); }
 .blockcheck-group h2 { margin: 0; font-size: 1rem; line-height: 1.4; letter-spacing: 0; }
 .blockcheck-group h2 :deep(.v-icon) { flex-shrink: 0; }
+.blockcheck-detail-header { overflow-wrap: anywhere; }
+.blockcheck-detail-header h2 { min-width: 0; letter-spacing: 0; }
+.blockcheck-detail-header h2 :deep(.v-icon) { flex-shrink: 0; }
 .blockcheck-progress { border-block: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); padding-block: 8px; }
 .blockcheck-scope > summary { cursor: pointer; padding-block: 6px; }
 .result-overview { padding-block: 12px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }

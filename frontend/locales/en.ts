@@ -2,6 +2,7 @@ export default { blockcheck: {
   title: 'BlockCheck', host: 'Host', local: 'Local host', path: 'Path', group: 'Service group', family: 'Address family',
   resolver: 'DNS server (optional)', outbound: 'Applied outbound', ingress: 'Applied ingress', cancel: 'Cancel', reload: 'Reload',
   check: 'Check', checkAll: 'Check all groups', groupActions: 'Actions for {group}', groupDetails: 'Group details',
+  backToGroups: 'Back to groups',
   include: 'Include in Check All', exclude: 'Exclude from Check All', excluded: 'Excluded from Check All',
   targetsCount: 'Targets: {count}', notRun: 'Not checked', summary: 'Passed: {positive} of {count}',
   availability: { available: 'Available', limited: 'Limited', unavailable: 'Unavailable', unconfirmed: 'Unconfirmed' },
