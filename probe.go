@@ -36,12 +36,18 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		needsSocket = true
 	case QUIC, HTTP3, STUN:
 		needsSocket, datagram, dial = true, true, path.DialUDP
+	case ICMP:
+		needsSocket = true
+		if path.EchoICMP == nil {
+			row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
+			return
+		}
 	default:
 		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
 		return
 	}
 	namedStream := needsSocket && !datagram && row.Probe != TCP && path.DialNamedStream != nil
-	if needsSocket && dial == nil && !namedStream {
+	if needsSocket && row.Probe != ICMP && dial == nil && !namedStream {
 		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
 		return
 	}
@@ -133,6 +139,10 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		return
 	}
 	address := addresses[0]
+	if row.Probe == ICMP {
+		performICMPEcho(ctx, path, row, address)
+		return
+	}
 	row.address = address
 	row.AttemptedAddress = address.String()
 	if address.Is4() {
@@ -241,6 +251,33 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		stream = secure
 	}
 	probeHTTP(row, target.Host, stream)
+}
+
+func performICMPEcho(ctx context.Context, path Path, row *Result, address netip.Addr) {
+	row.Stage = ""
+	evidence, err := path.EchoICMP(ctx, address)
+	switch {
+	case errors.Is(err, ErrICMPEchoUnavailable) || errors.Is(err, ErrNoProbeCapability):
+		row.Status, row.Reason = Unsupported, pathReason(err)
+	case errors.Is(err, ErrTargetRejected):
+		row.Status, row.Reason = Rejected, pathReason(err)
+	case errors.Is(err, ErrICMPEchoNotSent):
+		row.Status, row.Reason = Unobservable, pathReason(err)
+	case errors.Is(err, ErrBaselineUnobservable) || path.Evidence.Mode == HostBaseline && !outsidePanel(evidence):
+		row.Status, row.Reason = Unobservable, string(ErrBaselineUnobservable)
+	default:
+		row.Stage = StageICMP
+		row.Socket = socketObservation(evidence)
+		row.address, row.AttemptedAddress = address, address.String()
+		row.AddressFamily = IPv6
+		if address.Is4() {
+			row.AddressFamily = IPv4
+		}
+		row.Status = OK
+		if err != nil {
+			row.Status = classify(err, ProtocolError)
+		}
+	}
 }
 
 func probeTLSConfig(probe Probe, host string) *tls.Config {

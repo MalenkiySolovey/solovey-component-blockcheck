@@ -99,6 +99,8 @@ type Path struct {
 	DialNamedStream func(context.Context, string, netip.AddrPort) (net.Conn, func() (SocketEvidence, error), error)
 	// DialUDP returns a connected datagram transport to the admitted destination.
 	DialUDP func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
+	// EchoICMP sends one Echo Request and verifies the reply without another path.
+	EchoICMP func(context.Context, netip.Addr) (SocketEvidence, error)
 }
 
 // Provider must bind Core operations to the selected generation, honor probe
@@ -149,6 +151,8 @@ const (
 	ErrGenerationChanged       PathError = "core_generation_changed"
 	ErrResolverUnsupported     PathError = "dns_transport_not_available"
 	ErrNoProbeCapability       PathError = "probe_not_available_on_path"
+	ErrICMPEchoUnavailable     PathError = "host_icmp_echo_unavailable"
+	ErrICMPEchoNotSent         PathError = "host_icmp_echo_not_sent"
 	ErrTargetRejected          PathError = "target_policy_rejected"
 )
 

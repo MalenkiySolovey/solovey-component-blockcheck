@@ -49,6 +49,7 @@ const (
 	StageTCP         Stage = "tcp"
 	StageUDP         Stage = "udp"
 	StageSTUN        Stage = "stun"
+	StageICMP        Stage = "icmp"
 	StageQUIC        Stage = "quic"
 	StageTLS         Stage = "tls"
 	StageCertificate Stage = "certificate"
@@ -101,6 +102,10 @@ func interpretProbe(row Result) *Finding {
 	case StageSTUN:
 		if row.Status != OK {
 			return fact("stun_binding_incomplete", "stun_support_policy", "path_or_service", "intermediary")
+		}
+	case StageICMP:
+		if row.Status != OK {
+			return fact("icmp_echo_incomplete", "icmp_echo_policy", "path_or_service")
 		}
 	case StageQUIC:
 		if row.Status != OK {
