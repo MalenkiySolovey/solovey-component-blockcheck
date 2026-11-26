@@ -45,6 +45,7 @@ type Stage string
 
 const (
 	StageDNS         Stage = "dns"
+	StageRoute       Stage = "route"
 	StageTCP         Stage = "tcp"
 	StageUDP         Stage = "udp"
 	StageSTUN        Stage = "stun"

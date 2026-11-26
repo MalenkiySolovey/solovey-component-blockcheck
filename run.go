@@ -76,6 +76,8 @@ type SocketEvidence struct {
 	ProxyAccepted bool   `json:"proxyAccepted,omitempty"`
 	// A lazy proxy stream can be returned before an endpoint request is sent.
 	ProxyTransportOnly bool `json:"proxyTransportOnly,omitempty"`
+	// Egress records the native route decision, not a socket observation.
+	RouteSelectionOnly bool `json:"routeSelectionOnly,omitempty"`
 }
 
 type Resolution struct {
@@ -92,6 +94,9 @@ type Path struct {
 	Current  func(context.Context) error
 	Resolve  func(context.Context, string, Family, Probe) (Resolution, error)
 	DialTCP  func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
+	// A routed stream may need client bytes before routing and egress are
+	// observable. The observer does not turn tunnel setup into a TCP result.
+	DialNamedStream func(context.Context, string, netip.AddrPort) (net.Conn, func() (SocketEvidence, error), error)
 	// DialUDP returns a connected datagram transport to the admitted destination.
 	DialUDP func(context.Context, netip.AddrPort) (net.Conn, SocketEvidence, error)
 }
@@ -138,6 +143,7 @@ func (e PathError) Error() string { return string(e) }
 
 const (
 	ErrPanelIngressUnqualified PathError = "panel_ingress_not_qualified"
+	ErrPanelRouteUnobserved    PathError = "panel_dispatch_not_observed"
 	ErrBaselineUnobservable    PathError = "host_baseline_not_observable"
 	ErrOutboundUnavailable     PathError = "outbound_not_available"
 	ErrGenerationChanged       PathError = "core_generation_changed"

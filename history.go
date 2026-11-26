@@ -166,7 +166,7 @@ func historySocket(socket *SocketEvidence) *SocketEvidence {
 	if socket == nil || socket.Egress == "" && !socket.OutsidePanel {
 		return nil
 	}
-	return &SocketEvidence{Egress: socket.Egress, OutsidePanel: socket.OutsidePanel}
+	return &SocketEvidence{Egress: socket.Egress, OutsidePanel: socket.OutsidePanel, RouteSelectionOnly: socket.RouteSelectionOnly}
 }
 
 func (c *HistoryCapture) finishGroup(event SuiteEvent) {

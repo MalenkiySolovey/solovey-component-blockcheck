@@ -40,7 +40,8 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
 		return
 	}
-	if needsSocket && dial == nil {
+	namedStream := needsSocket && !datagram && row.Probe != TCP && path.DialNamedStream != nil
+	if needsSocket && dial == nil && !namedStream {
 		row.Status, row.Reason = Unsupported, string(ErrNoProbeCapability)
 		return
 	}
@@ -147,22 +148,50 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	if datagram {
 		row.Stage = StageUDP
 	}
-	conn, evidence, err := dial(ctx, netip.AddrPortFrom(address, port))
+	destination := netip.AddrPortFrom(address, port)
+	var conn net.Conn
+	var evidence SocketEvidence
+	var err error
+	var observe func() (SocketEvidence, error)
+	if namedStream {
+		conn, observe, err = path.DialNamedStream(ctx, target.Host, destination)
+	} else {
+		conn, evidence, err = dial(ctx, destination)
+	}
 	if conn != nil {
 		defer conn.Close()
+	}
+	if namedStream {
+		beforeDispatch := *row
+		defer func() {
+			var observation SocketEvidence
+			var routeErr error
+			if observe != nil {
+				observation, routeErr = observe()
+			}
+			if routeErr == nil && observation.Egress != "" && validText(observation.Egress, 256, false) {
+				row.Socket = &SocketEvidence{Egress: observation.Egress, RouteSelectionOnly: true}
+				return
+			}
+			if routeErr == nil {
+				routeErr = err
+				if routeErr == nil {
+					routeErr = ErrPanelRouteUnobserved
+				}
+			}
+			// The DNS choice was only a candidate. Without admitted dispatch,
+			// nothing proves that Core attempted that address or reached TLS/HTTP.
+			*row = beforeDispatch
+			row.Stage, row.AddressFamily, row.AttemptedAddress, row.address = StageRoute, "", "", netip.Addr{}
+			recordSocketFailure(row, routeErr)
+		}()
 	}
 	if path.Evidence.Mode == HostBaseline && !outsidePanel(evidence) {
 		row.Status, row.Reason = Unobservable, string(ErrBaselineUnobservable)
 		return
 	}
 	if err != nil || conn == nil {
-		row.Status = classify(err, DialFailed)
-		var unavailable PathError
-		if errors.Is(err, ErrTargetRejected) {
-			row.Status, row.Reason = Rejected, pathReason(err)
-		} else if errors.As(err, &unavailable) {
-			row.Status, row.Reason = Unobservable, pathReason(err)
-		}
+		recordSocketFailure(row, err)
 		return
 	}
 	row.Socket = socketObservation(evidence)
@@ -328,6 +357,16 @@ func readTransfer(row *Result, response *http.Response, raw *io.LimitedReader) {
 
 func outsidePanel(e SocketEvidence) bool {
 	return e.OutsidePanel && operationref.ValidToken(e.Interface, 64)
+}
+
+func recordSocketFailure(row *Result, err error) {
+	row.Status, row.Reason = classify(err, DialFailed), ""
+	var unavailable PathError
+	if errors.Is(err, ErrTargetRejected) {
+		row.Status, row.Reason = Rejected, pathReason(err)
+	} else if errors.As(err, &unavailable) {
+		row.Status, row.Reason = Unobservable, pathReason(err)
+	}
 }
 
 func socketObservation(e SocketEvidence) *SocketEvidence {
