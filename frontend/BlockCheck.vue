@@ -492,7 +492,8 @@ function rowFacts(row: Row, includeAddress = true) {
       bytes: row.bodyBytes ?? 0, expected: row.bodyExpected ?? t('blockcheck.unknownLength'),
     }), row.bodyReadMs !== undefined && t('blockcheck.transferReadTime', { duration: duration(row.bodyReadMs) }),
     row.bodyMaxGapMs !== undefined && t('blockcheck.transferMaxGap', { duration: duration(row.bodyMaxGapMs) }),
-    row.socket?.egress, row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
+    row.socket?.egress && (row.socket.routeSelectionOnly ? t('blockcheck.selectedEgress', { egress: row.socket.egress }) : row.socket.egress),
+    row.socket?.interface].filter(Boolean).join(' · ') || t('blockcheck.unknown')
 }
 const targetLabel = (index: number) => {
   const target = visibleEntry.value?.targets[index]

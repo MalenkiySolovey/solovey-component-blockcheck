@@ -76,6 +76,8 @@ type SocketEvidence struct {
 	ProxyAccepted bool   `json:"proxyAccepted,omitempty"`
 	// A lazy proxy stream can be returned before an endpoint request is sent.
 	ProxyTransportOnly bool `json:"proxyTransportOnly,omitempty"`
+	// Egress records the native route decision, not a socket observation.
+	RouteSelectionOnly bool `json:"routeSelectionOnly,omitempty"`
 }
 
 type Resolution struct {
@@ -141,6 +143,7 @@ func (e PathError) Error() string { return string(e) }
 
 const (
 	ErrPanelIngressUnqualified PathError = "panel_ingress_not_qualified"
+	ErrPanelRouteUnobserved    PathError = "panel_dispatch_not_observed"
 	ErrBaselineUnobservable    PathError = "host_baseline_not_observable"
 	ErrOutboundUnavailable     PathError = "outbound_not_available"
 	ErrGenerationChanged       PathError = "core_generation_changed"

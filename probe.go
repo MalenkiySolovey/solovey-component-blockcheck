@@ -161,14 +161,29 @@ func performProbe(ctx context.Context, row *Result, target Target, path Path, fa
 	if conn != nil {
 		defer conn.Close()
 	}
-	if observe != nil {
+	if namedStream {
+		beforeDispatch := *row
 		defer func() {
-			observation, routeErr := observe()
-			row.Socket = socketObservation(observation)
-			if routeErr != nil {
-				row.Stage = StageTCP
-				recordSocketFailure(row, routeErr)
+			var observation SocketEvidence
+			var routeErr error
+			if observe != nil {
+				observation, routeErr = observe()
 			}
+			if routeErr == nil && observation.Egress != "" && validText(observation.Egress, 256, false) {
+				row.Socket = &SocketEvidence{Egress: observation.Egress, RouteSelectionOnly: true}
+				return
+			}
+			if routeErr == nil {
+				routeErr = err
+				if routeErr == nil {
+					routeErr = ErrPanelRouteUnobserved
+				}
+			}
+			// The DNS choice was only a candidate. Without admitted dispatch,
+			// nothing proves that Core attempted that address or reached TLS/HTTP.
+			*row = beforeDispatch
+			row.Stage, row.AddressFamily, row.AttemptedAddress, row.address = StageRoute, "", "", netip.Addr{}
+			recordSocketFailure(row, routeErr)
 		}()
 	}
 	if path.Evidence.Mode == HostBaseline && !outsidePanel(evidence) {

@@ -123,11 +123,12 @@ export function compareGroupRuns(current?: Report, earlier: readonly Report[] = 
   })
 }
 
-export const stageKeys = ['dns', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
+export const stageKeys = ['dns', 'route', 'tcp', 'udp', 'stun', 'tls', 'quic', 'certificate', 'http', 'transfer'] as const
 export type Stage = typeof stageKeys[number]
 
 function stageFact(row: Row, stage: Stage): Availability | undefined {
   if (stage === 'dns' && row.stage !== 'dns' && row.dnsContext && row.answerCount) return 'available'
+  if (stage === 'route' && row.socket?.routeSelectionOnly && row.socket.egress) return 'available'
   if (stage === 'certificate' && row.tlsVerified) return 'available'
   if (stage === 'tls' && row.tlsVersion && row.probe !== 'quic' && row.probe !== 'http3') return 'available'
   if (stage === 'quic' && row.tlsVersion && (row.probe === 'quic' || row.probe === 'http3')) return 'available'
@@ -216,7 +217,8 @@ export function reportContext(a: Report, b: Report): 'observed' | 'configured' |
     const socket = dns.has(row.probe) ? row.dnsSocket : row.socket
     const otherSocket = dns.has(row.probe) ? other.dnsSocket : other.socket
     if (socket?.egress && otherSocket?.egress && socket.egress !== otherSocket.egress) return 'different'
-    if (a.path.mode === 'HOST_BASELINE' ? !socket?.outsidePanel || !otherSocket?.outsidePanel : !socket?.egress || !otherSocket?.egress) observed = false
+    if (a.path.mode === 'HOST_BASELINE' ? !socket?.outsidePanel || !otherSocket?.outsidePanel :
+      !socket?.egress || !otherSocket?.egress || socket.routeSelectionOnly || otherSocket.routeSelectionOnly) observed = false
   }
   return observed && a.results.length ? 'observed' : 'configured'
 }

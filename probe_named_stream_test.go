@@ -19,12 +19,14 @@ func TestNamedStreamObservesEgressOnlyForApplicationProbe(t *testing.T) {
 		name     string
 		probe    Probe
 		routeErr error
+		egress   string
 		status   Code
 		web      bool
 	}{
-		{"http", HTTP, nil, HTTPResponse, true},
-		{"rejected-after-tunnel", HTTP, ErrTargetRejected, Rejected, false},
-		{"bare-tcp", TCP, nil, Unsupported, false},
+		{"http", HTTP, nil, "admitted-leaf", HTTPResponse, true},
+		{"rejected-after-tunnel", HTTP, ErrTargetRejected, "", Rejected, false},
+		{"unattested-response", HTTP, nil, "", Unobservable, true},
+		{"bare-tcp", TCP, nil, "", Unsupported, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
@@ -60,7 +62,7 @@ func TestNamedStreamObservesEgressOnlyForApplicationProbe(t *testing.T) {
 						if tc.routeErr != nil {
 							return SocketEvidence{}, tc.routeErr
 						}
-						return SocketEvidence{Egress: "admitted-leaf"}, nil
+						return SocketEvidence{Egress: tc.egress}, nil
 					}, nil
 				},
 			}
@@ -71,11 +73,17 @@ func TestNamedStreamObservesEgressOnlyForApplicationProbe(t *testing.T) {
 			if row.Status != tc.status || called != (tc.probe != TCP) {
 				t.Fatalf("unexpected observation: %+v", row)
 			}
-			if tc.web && (row.HTTPStatus != http.StatusNoContent || row.Socket == nil || row.Socket.Egress != "admitted-leaf") {
+			if tc.egress != "" && (row.HTTPStatus != http.StatusNoContent || row.Socket == nil || row.Socket.Egress != tc.egress || !row.Socket.RouteSelectionOnly) {
 				t.Fatalf("missing HTTP or egress report: %+v", row)
 			}
-			if tc.routeErr != nil && (row.Stage != StageTCP || row.Socket != nil || row.Reason != string(ErrTargetRejected)) {
-				t.Fatalf("late routing error was misreported as endpoint failure: %+v", row)
+			if tc.probe != TCP && tc.egress == "" {
+				wantReason := string(ErrPanelRouteUnobserved)
+				if tc.routeErr != nil {
+					wantReason = tc.routeErr.Error()
+				}
+				if row.Stage != StageRoute || row.Socket != nil || row.HTTPStatus != 0 || row.AttemptedAddress != "" || row.Reason != wantReason || row.AnswerCount != 1 {
+					t.Fatalf("unverified route was misreported as endpoint evidence: %+v", row)
+				}
 			}
 		})
 	}
