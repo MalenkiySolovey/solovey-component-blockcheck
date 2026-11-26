@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Report, Row } from './api'
-import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
+import { authenticatesDNSSet, comparable, compareProbeResults, dnsDifference } from './comparison'
 
 function answer(overrides: Partial<Row> = {}): Row {
   return { target: 0, targetRef: 'fixture', probe: 'dns', stage: 'dns', status: 'dns_response', elapsedMs: 1,
@@ -61,5 +61,41 @@ describe('DNS comparison', () => {
     expect(comparable(a, report([answer()], { groupRevision: 'new-revision' }))).toBe(false)
     expect(comparable(a, report([answer()], { startedAt: '2026-11-25T17:15:01Z' }))).toBe(false)
     expect(comparable(a, report([answer()], { startedAt: 'invalid-date' }))).toBe(false)
+  })
+})
+
+describe('run comparison', () => {
+  const web: Row = { target: 0, targetRef: 'fixture', probe: 'https', stage: 'http', status: 'http_response', httpStatus: 204, elapsedMs: 1 }
+  const voice: Row = { target: 1, targetRef: 'voice', probe: 'stun', status: 'unsupported', elapsedMs: 1 }
+
+  it('finds observed stage and DNS differences and excludes a capability gap', () => {
+    const panel = report([answer(), web, voice], { path: { mode: 'PANEL', ref: 'local-mixed' } })
+    const baseline = report([answer({ status: 'target_rejected', reason: 'dns_or_literal_address_not_public', answerCount: undefined }),
+      { ...web, stage: 'tls', status: 'tls_failed', httpStatus: undefined }, { ...voice, stage: 'stun', status: 'ok' }], {
+      path: { mode: 'HOST_BASELINE' }, startedAt: '2026-11-25T17:01:00Z',
+    })
+    expect(compareProbeResults(panel, baseline)).toEqual({ outcomes: ['different', 'different', 'unconfirmed'], matched: 2, differed: 2, total: 3 })
+    expect(compareProbeResults(baseline, panel)).toEqual(compareProbeResults(panel, baseline))
+  })
+
+  it('keeps missing facts and elapsed time out of the difference count', () => {
+    const earlier = report([web, voice])
+    const current = report([{ ...web, elapsedMs: 1000, httpProtocol: 'h2' }, { ...voice, status: 'unobservable' }])
+    expect(compareProbeResults(current, earlier)).toEqual({ outcomes: ['same', 'unconfirmed'], matched: 1, differed: 0, total: 2 })
+    expect(compareProbeResults(report([voice]), report([voice]))).toMatchObject({ matched: 0, differed: 0, total: 1 })
+  })
+
+  it('surfaces a different HTTP response even when both responses were limited', () => {
+    expect(compareProbeResults(report([{ ...web, httpStatus: 403 }]), report([{ ...web, httpStatus: 429 }])))
+      .toMatchObject({ outcomes: ['different'], matched: 1, differed: 1 })
+  })
+
+  it('does not summarize a partial run or pair changed targets, scope, hosts or stale cross-path observations', () => {
+    const current = report([web, voice])
+    expect(compareProbeResults(current, report([web, voice], { job: { jobId: 'partial', phase: 'CANCELED' } }))).toBeUndefined()
+    expect(compareProbeResults(current, report([web]))).toBeUndefined()
+    expect(compareProbeResults(current, report([{ ...web, targetRef: 'other-site' }, voice]))).toBeUndefined()
+    expect(compareProbeResults(current, report([web, voice], { pathEvidence: { host: { id: 'other' }, scope: 'outbound-pinned-ip' } }))).toBeUndefined()
+    expect(compareProbeResults(current, report([web, voice], { path: { mode: 'HOST_BASELINE' }, startedAt: '2026-11-25T17:25:00Z' }))).toBeUndefined()
   })
 })

@@ -176,7 +176,18 @@
         <v-select v-model="runIndex" :items="runChoices" :label="t(options?.history ? 'blockcheck.history' : 'blockcheck.sessionHistory')" density="compact" hide-details />
         <v-select v-if="comparisonChoices.length" v-model="compareIndex" :items="comparisonChoices" :label="t('blockcheck.compare')" density="compact" hide-details clearable />
       </div>
-      <div v-if="previousGroupChange" class="text-caption text-medium-emphasis mb-2">{{ previousGroupChange }}</div>
+      <section v-if="comparison && probeComparison" class="run-comparison mb-3" aria-labelledby="blockcheck-run-comparison" aria-live="polite">
+        <h3 id="blockcheck-run-comparison" class="text-subtitle-2 mb-2">{{ t('blockcheck.runComparison') }}</h3>
+        <div class="blockcheck-results-controls">
+          <div v-for="entry in [visibleEntry!, comparison]" :key="entry.report.job.jobId">
+            <div class="text-caption">{{ runTitle(entry.report) }}</div>
+            <strong class="text-body-2" :data-availability="groupAvailability(entry)">{{ availability(groupAvailability(entry)) }}</strong>
+          </div>
+        </div>
+        <div class="text-body-2 mt-2">{{ t(probeComparison.matched ? 'blockcheck.comparisonCounts' : 'blockcheck.comparisonNoObservations', probeComparison) }}</div>
+        <p v-if="probeComparison.matched" class="text-caption text-medium-emphasis mb-0">{{ t('blockcheck.comparisonLimits') }}</p>
+      </section>
+      <div v-else-if="previousGroupChange" class="text-caption text-medium-emphasis mb-2">{{ previousGroupChange }}</div>
       <div class="text-caption text-medium-emphasis mb-2">{{ t('blockcheck.factsHint') }}</div>
       <details class="mb-2">
         <summary>{{ t('blockcheck.details') }}</summary>
@@ -228,6 +239,7 @@
               <template v-if="comparedRows.get(cellKey(row.target, row.probe))">
                 <div class="text-caption mt-1">{{ t('blockcheck.compactComparison', { path: pathTitle(comparison!.report), result: observation(comparedRows.get(cellKey(row.target, row.probe))!.row), duration: duration(comparedRows.get(cellKey(row.target, row.probe))!.row.elapsedMs) }) }}</div>
                 <div class="text-caption text-medium-emphasis">{{ rowFacts(comparedRows.get(cellKey(row.target, row.probe))!.row) }}</div>
+                <div v-if="comparedRows.get(cellKey(row.target, row.probe))!.different" class="text-caption font-weight-medium">{{ t('blockcheck.comparisonChangedProbe') }}</div>
                 <details v-if="comparedRows.get(cellKey(row.target, row.probe))!.dns" class="mt-1 text-caption">
                   <summary>{{ t('blockcheck.dnsDifference.' + comparedRows.get(cellKey(row.target, row.probe))!.dns) }}</summary>
                   <div>{{ t('blockcheck.dnsDifferenceEvidence') }}</div>
@@ -298,7 +310,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { cancelSuite, load, loadHistory, openTransfer, redacted, save, streamSuite, transferSchema, type Catalog, type Depth, type Family, type Finding, type Group, type GroupFinding, type HistoryEntry, type HistoryRun, type Mode, type Options, type Report, type Row, type SuiteEvent, type SuiteProgress, type Target } from './api'
-import { authenticatesDNSSet, comparable, dnsDifference } from './comparison'
+import { authenticatesDNSSet, comparable, compareProbeResults, dnsDifference } from './comparison'
 import { addressResults, availabilityColor, availabilityStates, baselineInterface, cardTargetLabel, compareAggregates, compareGroupRuns, groupAvailability, probeAvailability, protocolResults, reportContext, targetEndpoint, targetResults, type Availability } from './serviceResults'
 
 const { t, te, locale } = useI18n()
@@ -383,6 +395,7 @@ const runChoices = computed(() => groupHistory.value.map(({report}, value) => ({
 const comparisonChoices = computed(() => runChoices.value.filter(({value}) => value !== runIndex.value && visibleReport.value && (
   comparable(visibleReport.value, groupHistory.value[value].report) || reportContext(visibleReport.value, groupHistory.value[value].report) !== 'different')))
 const comparison = computed(() => comparisonChoices.value.some(item => item.value === compareIndex.value) ? groupHistory.value[compareIndex.value!] : undefined)
+const probeComparison = computed(() => visibleReport.value && comparison.value && compareProbeResults(visibleReport.value, comparison.value.report))
 const comparedRows = computed(() => {
   const other = comparison.value?.report
   const current = visibleReport.value
@@ -392,7 +405,7 @@ const comparedRows = computed(() => {
     const authenticated = !dns ? [] : [{ key: 'current', row, report: current }, { key: 'compared', row: compared, report: other }]
       .filter(entry => authenticatesDNSSet(entry.row, entry.report))
       .map(entry => ({ key: entry.key, label: runTitle(entry.report) }))
-    return [cellKey(row.target, row.probe), { row: compared, dns, authenticated }] as const
+    return [cellKey(row.target, row.probe), { row: compared, dns, authenticated, different: probeComparison.value?.outcomes[index] === 'different' }] as const
   }) : [])
 })
 
@@ -761,6 +774,7 @@ onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
 .blockcheck { max-width: 1240px; }
 .blockcheck-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; }
 .blockcheck-results-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 8px 12px; }
+.run-comparison { padding-block: 8px; border-block: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow-wrap: anywhere; }
 .blockcheck-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; }
 .blockcheck-group { display: flex; flex-direction: column; border-radius: 8px; overflow-wrap: anywhere; border-color: rgba(var(--v-border-color), var(--v-border-opacity)); }
 .blockcheck-group h2 { margin: 0; font-size: 1rem; line-height: 1.4; letter-spacing: 0; }
