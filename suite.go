@@ -12,13 +12,21 @@ import (
 	"github.com/MalenkiySolovey/solovey-host/operationref"
 )
 
-// A foreground run holds at most this many active probes. The number of
-// batches depends on the selected definitions, not on the concurrency limit.
+// Keep the existing ceiling for simultaneous connections and protocol buffers.
+// A Host provider can lower the batch size for the next batch without losing
+// progress or changing the selected definitions.
 const probeBatchSize = 3
+
+func suiteBatchSize(provider Provider) int {
+	if limits, ok := provider.(interface{ SuiteProbeParallelism() int }); ok {
+		return min(probeBatchSize, max(1, limits.SuiteProbeParallelism()))
+	}
+	return probeBatchSize
+}
 
 // Explicit selections encode target indexes separately from catalog entries.
 // This is a request-size safeguard, not a limit on selected cells.
-const MaxSuiteRequestBytes = 5*MaxCatalogBytes + 2048
+const MaxSuiteRequestBytes = (640 << 10) + 2048
 
 var (
 	ErrNoEnabledGroups = errors.New("blockcheck_no_enabled_groups")
@@ -111,13 +119,10 @@ func prepareSuite(catalog Catalog, req SuiteRequest) ([]plannedGroup, SuiteProgr
 	if len(plan) == 0 {
 		return nil, progress, 0, ErrNoEnabledGroups
 	}
-	// The admission/response allowance scales with the number of batches,
-	// leaving timing headroom without raising each individual probe's budget.
-	batches := 1
-	for _, group := range plan {
-		batches += (len(group.cells) + probeBatchSize - 1) / probeBatchSize
-	}
-	return plan, progress, time.Duration(batches) * 2 * ProbeBudget, nil
+	// Size the job deadline for serial execution so resource pressure can
+	// reduce concurrency without truncating the selected groups. Each batch
+	// has its own probe budget and two before/after path observations.
+	return plan, progress, ProbeBudget + time.Duration(progress.TotalProbes)*3*ProbeBudget, nil
 }
 
 // CancelSuite cancels only the matching foreground operation. It leaves the
@@ -195,10 +200,13 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 			if err := publish(SuiteEvent{Kind: "progress", Group: &group}, "RUNNING", pending, ""); err != nil {
 				return err
 			}
-			for batch := range slices.Chunk(entry.cells, probeBatchSize) {
+			for offset := 0; offset < len(entry.cells); {
 				if pathErr = checkCurrent(runCtx, path); pathErr != nil {
 					break
 				}
+				next := min(len(entry.cells), offset+suiteBatchSize(provider))
+				batch := entry.cells[offset:next]
+				offset = next
 				rows := make([]Result, len(batch))
 				var probes sync.WaitGroup
 				for i, cell := range batch {

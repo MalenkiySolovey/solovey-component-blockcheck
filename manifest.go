@@ -10,6 +10,8 @@ import (
 
 const ID = "blockcheck"
 const CatalogSettingKey = "blockcheckGroupsV1"
+const CatalogRevisionSettingKey = "blockcheckGroupsRevisionV2"
+const CatalogGroupTable = "blockcheck_group_catalog_v2"
 const HistorySettingKey = "blockcheckHistoryV1"
 
 //go:embed component.json
