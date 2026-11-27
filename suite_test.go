@@ -15,6 +15,13 @@ import (
 	"github.com/MalenkiySolovey/solovey-host/operationref"
 )
 
+type suiteTestProvider struct {
+	ProviderFunc
+	parallelism int
+}
+
+func (p *suiteTestProvider) SuiteProbeParallelism() int { return p.parallelism }
+
 func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 	c, cat, req, path := fixture(t, Outbound, TCP)
 	failed := cat.Groups[0]
@@ -68,10 +75,23 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 		return client, SocketEvidence{}, nil
 	}
 	var events []SuiteEvent
-	err = c.RunSuite(t.Context(), hostref.Local(), cat, SuiteRequest{RunRequest: req, All: true}, ProviderFunc(func(context.Context, hostref.Ref, PathSelection) (Path, error) {
+	provider := &suiteTestProvider{parallelism: probeBatchSize + 5, ProviderFunc: func(context.Context, hostref.Ref, PathSelection) (Path, error) {
 		opens.Add(1)
 		return path, nil
-	}), func(ip netip.Addr) bool { return ip == fixtureAddr }, func(event SuiteEvent) error {
+	}}
+	var largeBatches int
+	err = c.RunSuite(t.Context(), hostref.Local(), cat, SuiteRequest{RunRequest: req, All: true}, provider, func(ip netip.Addr) bool { return ip == fixtureAddr }, func(event SuiteEvent) error {
+		if event.Group != nil && event.Group.ID == "large" && len(event.Rows) > 0 {
+			largeBatches++
+			if largeBatches == 1 {
+				if len(event.Rows) != probeBatchSize {
+					t.Fatalf("Host parallelism exceeded the connection ceiling: %+v", event)
+				}
+				provider.parallelism = 0 // resource evidence became unavailable
+			} else if len(event.Rows) != 1 {
+				t.Fatalf("did not switch to serial execution on the same job: %+v", event)
+			}
+		}
 		events = append(events, event)
 		return nil
 	})
@@ -114,7 +134,7 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(reports, []string{"failed", "large"}) || len(largeRows) != 35 || !slices.IsSorted(largeRows) {
+	if !slices.Equal(reports, []string{"failed", "large"}) || len(largeRows) != 35 || !slices.IsSorted(largeRows) || largeBatches != 1+35-probeBatchSize {
 		t.Fatalf("lost groups or definition order: %v %v", reports, largeRows)
 	}
 }

@@ -10,7 +10,8 @@ import (
 
 func TestTemplateCatalogAndManifest(t *testing.T) {
 	m := Manifest()
-	if m.ID != ID || m.DefaultEnabled || !slices.Equal(m.Database.Settings, []string{CatalogSettingKey, HistorySettingKey}) {
+	if m.ID != ID || m.DefaultEnabled || m.Database.SchemaVersion != "2" || !slices.Equal(m.Database.Tables, []string{CatalogGroupTable}) ||
+		!slices.Equal(m.Database.Settings, []string{CatalogRevisionSettingKey, CatalogSettingKey, HistorySettingKey}) {
 		t.Fatalf("unexpected manifest: %+v", m)
 	}
 	c, err := DecodeCatalog(nil)
@@ -41,6 +42,18 @@ func TestTemplateCatalogAndManifest(t *testing.T) {
 	empty, err := DecodeCatalog(encoded)
 	if err != nil || len(empty.Groups) != 0 || empty.Revision() == c.Revision() {
 		t.Fatal("explicitly empty catalog must not reseed")
+	}
+	for _, catalog := range []Catalog{c, empty, {}} {
+		if catalog.Revision() != revision(catalog) {
+			t.Fatal("catalog migration changed the v1 revision", catalog.Schema)
+		}
+	}
+	selected, err := SelectedCatalog(c.Revision(), c.Groups[:1])
+	if err != nil || selected.Revision() != c.Revision() {
+		t.Fatalf("selection lost the full catalog revision: %v", err)
+	}
+	if _, err := selected.Apply(CatalogChange{Action: "delete", ID: selected.Groups[0].ID, ExpectedRevision: c.Revision()}); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("ran a catalog mutation with an incomplete selection: %v", err)
 	}
 }
 

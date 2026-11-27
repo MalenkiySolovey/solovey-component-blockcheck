@@ -3,6 +3,7 @@ package blockcheck
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -48,7 +49,9 @@ const (
 	CatalogSchema   = "solovey.blockcheck.groups/v1"
 	TransferSchema  = "solovey.blockcheck.group/v1"
 	ReferenceCommit = "47a1b0d7c4acb0426bdaf0c2f03a40df458a7e91"
-	MaxCatalogBytes = 128 << 10
+	// MaxCatalogBytes applies only when decoding the legacy v1 settings row.
+	MaxCatalogBytes     = 128 << 10
+	MaxGroupChangeBytes = (128 << 10) + 2048
 )
 
 var (
@@ -87,6 +90,8 @@ type Group struct {
 type Catalog struct {
 	Schema string  `json:"schema"`
 	Groups []Group `json:"groups"`
+	// Persisted catalog revision when only the selected groups were loaded.
+	selectedRevision string
 }
 
 type CatalogView struct {
@@ -152,12 +157,57 @@ func decode(data []byte, target any) error {
 	return nil
 }
 
+// DecodeGroup validates a single durable group with the same rules as v1.
+func DecodeGroup(data []byte) (Group, error) {
+	var group Group
+	if decode(data, &group) != nil || !validID(group.ID) || group.validate() != nil || !validOrigin(group.Origin) {
+		return Group{}, ErrInvalidGroup
+	}
+	return group, nil
+}
+
+// SelectedCatalog binds groups from one durable read transaction to the
+// revision of the whole catalog. It is only a run input, not an editable view.
+func SelectedCatalog(revision string, groups []Group) (Catalog, error) {
+	if len(revision) != 64 || strings.Trim(revision, "0123456789abcdef") != "" {
+		return Catalog{}, ErrInvalidCatalog
+	}
+	catalog := Catalog{Schema: CatalogSchema, Groups: groups, selectedRevision: revision}
+	return catalog, catalog.Validate()
+}
+
 func (c Catalog) View() CatalogView {
 	return CatalogView{Catalog: c, Revision: c.Revision(), Templates: Templates(), Probes: slices.Clone(knownProbes[:])}
 }
 
-func (c Catalog) Revision() string { return revision(c) }
-func (g Group) Revision() string   { return revision(g) }
+func (c Catalog) Revision() string {
+	if c.selectedRevision != "" {
+		return c.selectedRevision
+	}
+	// Retain the v1 wire digest without materializing the entire catalog JSON.
+	if c.Groups == nil {
+		return revision(c)
+	}
+	hash := sha256.New()
+	var prefix struct {
+		Schema string `json:"schema"`
+	}
+	prefix.Schema = c.Schema
+	data, _ := json.Marshal(prefix)
+	_, _ = hash.Write(data[:len(data)-1])
+	_, _ = io.WriteString(hash, `,"groups":[`)
+	for i, group := range c.Groups {
+		if i != 0 {
+			_, _ = io.WriteString(hash, ",")
+		}
+		data, _ := json.Marshal(group)
+		_, _ = hash.Write(data)
+	}
+	_, _ = io.WriteString(hash, `]}`)
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func (g Group) Revision() string { return revision(g) }
 
 func revision(value any) string {
 	data, _ := json.Marshal(value)
@@ -175,9 +225,6 @@ func (c Catalog) Group(id string) (Group, bool) {
 func (c Catalog) Validate() error {
 	if c.Schema != CatalogSchema || c.Groups == nil {
 		return ErrInvalidCatalog
-	}
-	if data, err := json.Marshal(c); err != nil || len(data) > MaxCatalogBytes {
-		return ErrCatalogCapacity
 	}
 	seen := make(map[string]bool, len(c.Groups))
 	for _, group := range c.Groups {
@@ -273,6 +320,9 @@ func basePublicAddress(addr netip.Addr) bool {
 func (g Group) Export() GroupTransfer { return GroupTransfer{Schema: TransferSchema, Group: g} }
 
 func (c Catalog) Apply(change CatalogChange) (Catalog, error) {
+	if c.selectedRevision != "" {
+		return Catalog{}, ErrInvalidCatalog
+	}
 	if change.ExpectedRevision != c.Revision() {
 		return Catalog{}, ErrStaleCatalog
 	}
@@ -327,8 +377,12 @@ func (c Catalog) Apply(change CatalogChange) (Catalog, error) {
 		if len(change.Order) != len(c.Groups) {
 			return Catalog{}, ErrInvalidCatalog
 		}
+		byID := make(map[string]Group, len(c.Groups))
+		for _, group := range c.Groups {
+			byID[group.ID] = group
+		}
 		for index, id := range change.Order {
-			group, ok := c.Group(id)
+			group, ok := byID[id]
 			if !ok {
 				return Catalog{}, ErrGroupNotFound
 			}

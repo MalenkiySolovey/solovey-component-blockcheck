@@ -289,13 +289,6 @@ func (c *Component) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (c *Component) DropData(ctx context.Context, ports hostports.Ports) error {
-	if ports.DropOwnedSettings == nil || !ports.Host.IsLocal() {
-		return ErrInactive
-	}
-	return ports.DropOwnedSettings(ctx)
-}
-
 // Run requires a host-owned provider and public-destination policy. It does
 // not supply a resolver or dialer of its own, including on capability failure.
 func (c *Component) Run(ctx context.Context, host hostref.Ref, catalog Catalog, req RunRequest, provider Provider, permit func(netip.Addr) bool) (Report, error) {
