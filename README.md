@@ -12,7 +12,8 @@ hostname or public IP and supported probe identifiers, not URLs or commands.
 
 The foreground stream checks one group or every included group against one
 catalog revision and one host path. It returns progress and probe observations
-in batches of up to three, continues after target failures, and stops when its
+in batches sized by the Host provider (three when no budget is offered),
+continues after target failures, and stops when its
 path retires. Explicit cancellation retains completed batches and sends the
 terminal Jobs projection. Closing the request cancels work as well. No job
 continues after the request ends. The compatibility JSON endpoint still has a

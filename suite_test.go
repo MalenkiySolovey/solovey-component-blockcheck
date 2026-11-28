@@ -44,6 +44,7 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 		t.Fatalf("request byte budget should not imply count limits: %v", err)
 	}
 	req.GroupID, req.CatalogRevision = "", cat.Revision()
+	const hostParallelism = 8
 	var opens, resolves, dials, inflight, peak atomic.Int32
 	blocked := make(chan struct{})
 	path.Resolve = func(ctx context.Context, name string, _ Family, _ Probe) (Resolution, error) {
@@ -55,7 +56,7 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 		defer inflight.Add(-1)
 		for last := peak.Load(); cur > last && !peak.CompareAndSwap(last, cur); last = peak.Load() {
 		}
-		if cur == probeBatchSize && dials.Load() == 0 {
+		if cur == hostParallelism && dials.Load() == 0 {
 			close(blocked)
 		}
 		select {
@@ -75,27 +76,30 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 		return client, SocketEvidence{}, nil
 	}
 	var events []SuiteEvent
-	provider := &suiteTestProvider{parallelism: probeBatchSize + 5, ProviderFunc: func(context.Context, hostref.Ref, PathSelection) (Path, error) {
+	provider := &suiteTestProvider{parallelism: hostParallelism, ProviderFunc: func(context.Context, hostref.Ref, PathSelection) (Path, error) {
 		opens.Add(1)
 		return path, nil
 	}}
-	var largeBatches int
+	var largeUpdates, previous int
 	err = c.RunSuite(t.Context(), hostref.Local(), cat, SuiteRequest{RunRequest: req, All: true}, provider, func(ip netip.Addr) bool { return ip == fixtureAddr }, func(event SuiteEvent) error {
 		if event.Group != nil && event.Group.ID == "large" && len(event.Rows) > 0 {
-			largeBatches++
-			if largeBatches == 1 {
-				if len(event.Rows) != probeBatchSize {
-					t.Fatalf("Host parallelism exceeded the connection ceiling: %+v", event)
-				}
+			want := 1
+			if previous < hostParallelism {
+				want = min(suiteProgressRows, hostParallelism-previous)
+			}
+			if len(event.Rows) != want || event.Group.Completed != previous+want {
+				t.Fatalf("unexpected progress for Host-sized then serial batches: %+v", event)
+			}
+			largeUpdates++
+			previous = event.Group.Completed
+			if largeUpdates == 1 {
 				provider.parallelism = 0 // resource evidence became unavailable
-			} else if len(event.Rows) != 1 {
-				t.Fatalf("did not switch to serial execution on the same job: %+v", event)
 			}
 		}
 		events = append(events, event)
 		return nil
 	})
-	if err != nil || opens.Load() != 1 || peak.Load() != probeBatchSize || resolves.Load() != 36 || dials.Load() != 35 {
+	if err != nil || opens.Load() != 1 || peak.Load() != hostParallelism || resolves.Load() != 36 || dials.Load() != 35 {
 		t.Fatalf("suite did not traverse bounded batches through one path: err=%v opens=%d peak=%d resolves=%d dials=%d", err, opens.Load(), peak.Load(), resolves.Load(), dials.Load())
 	}
 	start, finish := events[0], events[len(events)-1]
@@ -110,7 +114,7 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 			t.Fatalf("suite changed jobs or emitted out of sequence: %+v", event)
 		}
 		seen := len(event.Rows)
-		if seen != 0 && (seen > probeBatchSize || event.Kind != "progress") {
+		if seen != 0 && (seen > suiteProgressRows || event.Kind != "progress") {
 			t.Fatalf("not a bounded incremental update: %+v", event)
 		}
 		if event.Group == nil {
@@ -134,7 +138,8 @@ func TestSuitePreservesCatalogOrderAcrossBatchesAndGroupFailures(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(reports, []string{"failed", "large"}) || len(largeRows) != 35 || !slices.IsSorted(largeRows) || largeBatches != 1+35-probeBatchSize {
+	wantUpdates := (hostParallelism+suiteProgressRows-1)/suiteProgressRows + 35 - hostParallelism
+	if !slices.Equal(reports, []string{"failed", "large"}) || len(largeRows) != 35 || !slices.IsSorted(largeRows) || largeUpdates != wantUpdates {
 		t.Fatalf("lost groups or definition order: %v %v", reports, largeRows)
 	}
 }

@@ -12,16 +12,16 @@ import (
 	"github.com/MalenkiySolovey/solovey-host/operationref"
 )
 
-// Keep the existing ceiling for simultaneous connections and protocol buffers.
-// A Host provider can lower the batch size for the next batch without losing
-// progress or changing the selected definitions.
-const probeBatchSize = 3
+const (
+	defaultProbeParallelism = 3 // For providers that do not supply a Host budget.
+	suiteProgressRows       = 3 // Keep each event bounded independently of execution.
+)
 
 func suiteBatchSize(provider Provider) int {
 	if limits, ok := provider.(interface{ SuiteProbeParallelism() int }); ok {
-		return min(probeBatchSize, max(1, limits.SuiteProbeParallelism()))
+		return max(1, limits.SuiteProbeParallelism())
 	}
-	return probeBatchSize
+	return defaultProbeParallelism
 }
 
 // Explicit selections encode target indexes separately from catalog entries.
@@ -204,7 +204,7 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 				if pathErr = checkCurrent(runCtx, path); pathErr != nil {
 					break
 				}
-				next := min(len(entry.cells), offset+suiteBatchSize(provider))
+				next := offset + min(len(entry.cells)-offset, suiteBatchSize(provider))
 				batch := entry.cells[offset:next]
 				offset = next
 				rows := make([]Result, len(batch))
@@ -228,10 +228,12 @@ func (c *Component) RunSuite(ctx context.Context, host hostref.Ref, catalog Cata
 				if pathErr != nil {
 					break
 				}
-				group.Completed += len(rows)
-				progress.ProbesDone += len(rows)
-				if err := publish(SuiteEvent{Kind: "progress", Group: &group, Rows: rows, Findings: pairs.observe(rows)}, "RUNNING", pending, ""); err != nil {
-					return err
+				for update := range slices.Chunk(rows, suiteProgressRows) {
+					group.Completed += len(update)
+					progress.ProbesDone += len(update)
+					if err := publish(SuiteEvent{Kind: "progress", Group: &group, Rows: update, Findings: pairs.observe(update)}, "RUNNING", pending, ""); err != nil {
+						return err
+					}
 				}
 			}
 			phase, outcome, reason := "COMPLETED", operationref.OutcomeCommitted, ""
