@@ -2,6 +2,7 @@ package blockcheck
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -23,9 +24,13 @@ func TestHistoryCaptureIsBoundedAndDoesNotMutateLiveEvidence(t *testing.T) {
 	startMS := int64(0)
 	timed := Result{Cell: Cell{Target: 0, Probe: HTTP3}, TargetRef: "target", Stage: StageHTTP, Status: HTTPResponse, HTTPStatus: 204, HTTPResponseStartMS: &startMS}
 	capture.Observe(SuiteEvent{Kind: "progress", Group: &group, Rows: []Result{row, timed}})
-	capture.Observe(SuiteEvent{Kind: "group", Group: &group, Report: &Report{GroupID: "voice", StartedAt: start, FinishedAt: finish}})
-	run := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish, Job: operationref.Job{Phase: "CANCELED"}})
-	data, err := (History{}).WithRun(*run, finish)
+	_, entry := capture.Observe(SuiteEvent{Kind: "group", Group: &group, Report: &Report{GroupID: "voice", StartedAt: start, FinishedAt: finish}})
+	run, _ := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish, Job: operationref.Job{Phase: "CANCELED"}})
+	if entry == nil || len(run.Groups) != 0 {
+		t.Fatal("capture did not hand off the group independently")
+	}
+	run.Groups = append(run.Groups, *entry)
+	data, err := json.Marshal(History{Version: 1, Runs: []HistoryRun{*run}})
 	if err != nil || bytes.Contains(data, []byte(row.AttemptedAddress)) || bytes.Contains(data, []byte(row.Socket.Interface)) || bytes.Contains(data, []byte(row.DNSSocket.Interface)) {
 		t.Fatalf("history retained network address or interface: %s (%v)", data, err)
 	}
@@ -57,26 +62,27 @@ func TestHistoryDropsOversizeGroupAsAUnitAndPrunesOldRuns(t *testing.T) {
 	capture := NewHistoryCapture(Catalog{Groups: []Group{{ID: "large"}, {ID: "small"}}}, SuiteRequest{All: true})
 	capture.Observe(SuiteEvent{Kind: "started", StartedAt: &start, Job: operationref.Job{Reference: operationref.NewReference(ID, "catalog", "run-current")}})
 	large := GroupProgress{ID: "large"}
-	capture.Observe(SuiteEvent{Kind: "progress", Group: &large, Rows: []Result{{Status: OK}, {Reason: strings.Repeat("x", maxHistoryRunBytes)}}})
-	capture.Observe(SuiteEvent{Kind: "group", Group: &large, Report: &Report{GroupID: "large"}})
+	capture.Observe(SuiteEvent{Kind: "progress", Group: &large, Rows: []Result{{Status: OK}, {Reason: strings.Repeat("x", MaxHistoryGroupBytes)}}})
+	if _, item := capture.Observe(SuiteEvent{Kind: "group", Group: &large, Report: &Report{GroupID: "large"}}); item != nil {
+		t.Fatal("unexpected truncated group")
+	}
 	small := GroupProgress{ID: "small"}
 	capture.Observe(SuiteEvent{Kind: "progress", Group: &small, Rows: []Result{{Status: OK}}})
-	capture.Observe(SuiteEvent{Kind: "group", Group: &small, Report: &Report{GroupID: "small"}})
-	run := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish, Job: operationref.Job{Phase: "COMPLETED"}})
-	if len(run.Groups) != 1 || run.Groups[0].Report.GroupID != "small" || run.Omitted != 1 {
+	_, item := capture.Observe(SuiteEvent{Kind: "group", Group: &small, Report: &Report{GroupID: "small"}})
+	run, _ := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish, Job: operationref.Job{Phase: "COMPLETED"}})
+	if item == nil || item.Report.GroupID != "small" || run.Omitted != 1 {
 		t.Fatalf("oversize group displaced small group: %+v", run)
 	}
 	old := start.Add(-MaxHistoryAge)
-	current := History{Version: 1, Runs: []HistoryRun{{ID: "old", StartedAt: old, FinishedAt: old}}}
-	data, err := current.WithRun(*run, finish)
-	if err != nil || len(data) > MaxHistoryBytes || bytes.Contains(data, []byte("old")) {
-		t.Fatalf("wrong retention: %s (%v)", data, err)
+	data, err := json.Marshal(History{Version: 1, Runs: []HistoryRun{*run, {ID: "old", StartedAt: old, FinishedAt: old}}})
+	history, decoded := DecodeHistory(data, finish)
+	if err != nil || decoded != nil || len(history.Runs) != 1 || history.Runs[0].ID != run.ID {
+		t.Fatalf("wrong legacy retention: %+v (%v, %v)", history, err, decoded)
 	}
 }
 
 func TestHistoryKeepsConfiguredSTUNPortsFromTheRunRevision(t *testing.T) {
 	start := time.Now().UTC().Truncate(time.Second)
-	finish := start.Add(time.Second)
 	group := Group{ID: "voice", Targets: []Target{
 		{Name: "Standard", Host: "voice.example", Role: "voice", Port: 3478},
 		{Name: "Alternate", Host: "voice.example", Role: "voice", Port: 19302},
@@ -85,18 +91,9 @@ func TestHistoryKeepsConfiguredSTUNPortsFromTheRunRevision(t *testing.T) {
 	capture.Observe(SuiteEvent{Kind: "started", StartedAt: &start, Job: operationref.Job{Reference: operationref.NewReference(ID, "catalog", "ports")}})
 	progress := GroupProgress{ID: group.ID}
 	capture.Observe(SuiteEvent{Kind: "progress", Group: &progress, Rows: []Result{{Cell: Cell{Target: 0, Probe: STUN}}, {Cell: Cell{Target: 1, Probe: STUN}}}})
-	capture.Observe(SuiteEvent{Kind: "group", Group: &progress, Report: &Report{GroupID: group.ID}})
-	run := capture.Observe(SuiteEvent{Kind: "finished", FinishedAt: &finish})
+	_, entry := capture.Observe(SuiteEvent{Kind: "group", Group: &progress, Report: &Report{GroupID: group.ID}})
 	group.Targets[0].Port = 19302 // subsequent catalog edit does not relabel an old result
-	data, err := (History{}).WithRun(*run, finish)
-	if err != nil {
-		t.Fatal(err)
-	}
-	history, err := DecodeHistory(data, finish)
-	if err != nil {
-		t.Fatal(err)
-	}
-	targets := history.Runs[0].Groups[0].Targets
+	targets := entry.Targets
 	if len(targets) != 2 || targets[0].Port != 3478 || targets[1].Port != 19302 || targets[1].Name != "Alternate" {
 		t.Fatalf("wrong endpoint metadata: %+v", targets)
 	}

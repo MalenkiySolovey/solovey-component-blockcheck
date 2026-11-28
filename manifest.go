@@ -13,6 +13,8 @@ const CatalogSettingKey = "blockcheckGroupsV1"
 const CatalogRevisionSettingKey = "blockcheckGroupsRevisionV2"
 const CatalogGroupTable = "blockcheck_group_catalog_v2"
 const HistorySettingKey = "blockcheckHistoryV1"
+const HistoryRunTable = "blockcheck_history_run_v3"
+const HistoryGroupTable = "blockcheck_history_group_v3"
 
 //go:embed component.json
 var descriptor []byte

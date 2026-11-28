@@ -23,7 +23,9 @@ export type TargetSnapshot = Pick<Target, 'name' | 'host' | 'role' | 'port'>
 export type HistoryEntry = { report: Report; targets: TargetSnapshot[] }
 export type SuiteProgress = { groupsDone: number; totalGroups: number; probesDone: number; totalProbes: number }
 export type HistoryRun = { id: string; all: boolean; groupIds: string[]; path: Path; family: Family; depth: Depth; startedAt: string;
-  finishedAt: string; phase: string; progress: SuiteProgress; groups: HistoryEntry[]; omitted?: number }
+  finishedAt: string; phase: string; progress: SuiteProgress; groups: HistoryEntry[]; omitted?: number; hidden?: number }
+type HistoryPage = { runs: HistoryRun[]; paged?: boolean; next?: string }
+type HistoryQuery = { before?: string; view?: 'all'; groupId?: string }
 type SuiteRequest = { groupId?: string; all?: boolean; catalogRevision: string; path: Path; family: Family; cells?: Cell[]; depth?: Depth }
 export type SuiteEvent = { kind: 'started' | 'progress' | 'group' | 'finished'; job: {
     operationId: string; phase: string; problem?: { code: string }; cancelSupported: boolean
@@ -52,7 +54,8 @@ export async function load(signal: AbortSignal) {
 
 export const save = (change: object) => post<Catalog>('groups', change)
 export const cancelSuite = (operationId: string, signal: AbortSignal) => post<null>('run/cancel', { operationId }, signal)
-export const loadHistory = async (signal: AbortSignal) => unwrap(await api.get<Envelope<{ runs: HistoryRun[] }>>(`${base}/history`, { signal })).runs
+export const loadHistory = async (signal: AbortSignal, params?: HistoryQuery) =>
+  unwrap(await api.get<Envelope<HistoryPage>>(`${base}/history`, { signal, params }))
 
 export async function streamSuite(request: SuiteRequest, signal: AbortSignal, emit: (event: SuiteEvent) => void) {
   const { data, headers } = await api.post<ReadableStream<Uint8Array>>(`${base}/run/stream`, request, {
