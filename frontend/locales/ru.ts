@@ -8,6 +8,8 @@ export default { blockcheck: {
   availability: { available: 'Доступно', limited: 'С ограничениями', unavailable: 'Недоступно', unconfirmed: 'Не подтверждено' },
   overview: 'Последняя общая проверка', problemCount: 'Групп с проблемами или ограничениями: {count}', elapsed: 'Длительность: {duration}',
   previousOverview: 'Прошлая общая проверка', aggregateHistory: 'История общих проверок', historyOmitted: 'Подробности не сохранены для групп: {count}',
+  olderChecks: 'Загрузить прошлые проверки', olderCheckAll: 'Загрузить прошлые общие проверки',
+  historyHidden: 'Подробности для {count} групп доступны в истории этих групп.',
   noPrevious: 'Нет предыдущей проверки для сравнения', noChanges: 'Доступность не изменилась', comparedWithRun: 'Сравнение с запуском {date}',
   differentContext: 'Нет сопоставимой предыдущей проверки: различаются путь, поколение Core, цели или набор проб либо наблюдения неполны.',
   pathNotConfirmed: 'Настройки совпадают; фактический путь подтверждён не для каждой пробы.',

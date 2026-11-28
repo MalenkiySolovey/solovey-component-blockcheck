@@ -18,8 +18,8 @@ path retires. Explicit cancellation retains completed batches and sends the
 terminal Jobs projection. Closing the request cancels work as well. No job
 continues after the request ends. The compatibility JSON endpoint still has a
 32-probe, 30-second limit; streamed runs count batches rather than limiting
-the number of selected definitions. The serialized catalog and imports retain
-a size budget independent of the number of active probes.
+the number of selected definitions. Definitions persist independently; the
+single-group import request size does not limit the whole catalog.
 
 Quick runs use the configured probes. On a Deep run, HTTP/HTTPS and TLS probes
 add applicable transfer, exact TLS 1.2/1.3 and Chrome-profile HTTPS probes
@@ -76,9 +76,12 @@ remain absent even when measured times would round to zero. Raw responses, crede
 packet content are never retained. Exports remove attempted addresses, path
 context and egress details.
 
-The Host adapter retains recent manual runs in its existing component-owned
-settings store (14 days, at most 512 KiB). It keeps whole group reports or notes
-that details were omitted; resolved addresses are not stored. The catalog and
-configured target labels remain user-owned. History retention does not affect
-the extent of a run, and there is no idle worker. The component uses GPL-3.0;
-adapted target data retains its MIT notice.
+The Host adapter retains recent manual runs and redacted group reports in its
+existing SQLite storage for 14 days. Older settings migrate in place. The
+completed operation, including explicit cancellation, publishes the results;
+interrupted work is not shown as a run. The UI pages Check All and individual
+group history independently. A group report that exceeds the single-detail
+response budget is marked omitted, not silently truncated. Large suite views
+can link to details retained for individual groups. Resolved addresses are
+not stored. Retention does not affect the extent of a run, and there is no idle
+worker. The component uses GPL-3.0; adapted target data retains its MIT notice.

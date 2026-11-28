@@ -10,7 +10,7 @@ import (
 
 func TestTemplateCatalogAndManifest(t *testing.T) {
 	m := Manifest()
-	if m.ID != ID || m.DefaultEnabled || m.Database.SchemaVersion != "2" || !slices.Equal(m.Database.Tables, []string{CatalogGroupTable}) ||
+	if m.ID != ID || m.DefaultEnabled || m.Database.SchemaVersion != "3" || !slices.Equal(m.Database.Tables, []string{CatalogGroupTable, HistoryGroupTable, HistoryRunTable}) ||
 		!slices.Equal(m.Database.Settings, []string{CatalogRevisionSettingKey, CatalogSettingKey, HistorySettingKey}) {
 		t.Fatalf("unexpected manifest: %+v", m)
 	}

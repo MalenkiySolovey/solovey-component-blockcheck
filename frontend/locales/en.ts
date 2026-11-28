@@ -8,6 +8,8 @@ export default { blockcheck: {
   availability: { available: 'Available', limited: 'Limited', unavailable: 'Unavailable', unconfirmed: 'Unconfirmed' },
   overview: 'Latest Check All', problemCount: 'Groups with issues or limits: {count}', elapsed: 'Duration: {duration}',
   previousOverview: 'Previous Check All', aggregateHistory: 'Check All history', historyOmitted: 'Older details not retained for {count} groups',
+  olderChecks: 'Load older checks', olderCheckAll: 'Load older Check All runs',
+  historyHidden: 'Details for {count} groups are available in their group history.',
   noPrevious: 'No earlier run to compare', noChanges: 'Availability unchanged', comparedWithRun: 'Compared with {date}',
   differentContext: 'No comparable earlier run: path, Core generation, targets or check scope differ, or the observations are incomplete.',
   pathNotConfirmed: 'Same settings; the actual path was not confirmed for every probe.',

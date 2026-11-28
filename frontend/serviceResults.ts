@@ -70,7 +70,7 @@ export function groupAvailability(entry?: HistoryEntry): Availability {
   return entry ? serviceAvailability(targetResults(entry.targets.length, entry.report.results), entry.report.job.phase === 'COMPLETED') : 'unconfirmed'
 }
 
-type AggregateEvidence = Pick<HistoryRun, 'startedAt' | 'phase' | 'depth' | 'omitted' | 'progress'> & {
+type AggregateEvidence = Pick<HistoryRun, 'startedAt' | 'phase' | 'depth' | 'omitted' | 'hidden' | 'progress'> & {
   groups: ReadonlyMap<string, HistoryEntry | undefined>
 }
 type AvailabilityChange = { id: string; before: Availability; after: Availability }
@@ -92,7 +92,7 @@ function compareEarlier<T extends { startedAt: string }, C extends { unobservedP
 
 function compareAggregatePair(current: AggregateEvidence, previous: AggregateEvidence) {
   if (current.depth !== previous.depth || current.groups.size !== previous.groups.size ||
-    [current, previous].some(run => run.omitted || run.phase !== 'COMPLETED' || !run.groups.size ||
+    [current, previous].some(run => run.omitted || run.hidden || run.phase !== 'COMPLETED' || !run.groups.size ||
       run.progress.groupsDone !== run.progress.totalGroups || run.progress.totalGroups !== run.groups.size ||
       run.progress.probesDone !== run.progress.totalProbes)) return
 

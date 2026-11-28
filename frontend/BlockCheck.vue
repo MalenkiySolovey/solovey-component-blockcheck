@@ -52,6 +52,8 @@
       </div>
       <v-select v-if="aggregateChoices.length > 1" v-model="aggregateIndex" :items="aggregateChoices" :label="t('blockcheck.aggregateHistory')"
         density="compact" hide-details class="aggregate-history mt-2" />
+      <v-btn v-if="aggregateBefore" variant="text" density="compact" prepend-icon="lucide:history" class="mt-1"
+        :loading="extraAggregateLoading" @click="loadOlderAggregates">{{ t('blockcheck.olderCheckAll') }}</v-btn>
       <dl class="overview-counts mt-2">
         <div v-for="state in availabilityStates" :key="state" :data-availability="state">
           <dt class="text-caption">{{ availability(state) }}</dt><dd class="text-h6">{{ aggregate.counts[state] }}</dd>
@@ -64,6 +66,7 @@
         <span>{{ t('blockcheck.elapsed', { duration: duration(aggregate.elapsed) }) }}</span>
         <span>{{ aggregateChange }}</span>
         <span v-if="aggregate.omitted">{{ t('blockcheck.historyOmitted', { count: aggregate.omitted }) }}</span>
+        <span v-if="aggregate.hidden">{{ t('blockcheck.historyHidden', { count: aggregate.hidden }) }}</span>
       </div>
       <details v-if="aggregateChanges.length" :key="aggregate.id" class="aggregate-changes mt-2 text-body-2">
         <summary>{{ t('blockcheck.changedGroupDetails') }}</summary>
@@ -176,6 +179,8 @@
         <v-select v-model="runIndex" :items="runChoices" :label="t(options?.history ? 'blockcheck.history' : 'blockcheck.sessionHistory')" density="compact" hide-details />
         <v-select v-if="comparisonChoices.length" v-model="compareIndex" :items="comparisonChoices" :label="t('blockcheck.compare')" density="compact" hide-details clearable />
       </div>
+      <v-btn v-if="groupBefore" variant="text" density="compact" prepend-icon="lucide:history" class="mb-2"
+        :loading="extraGroupLoading" @click="loadGroupPage(selected, groupBefore)">{{ t('blockcheck.olderChecks') }}</v-btn>
       <section v-if="comparison && probeComparison" class="run-comparison mb-3" aria-labelledby="blockcheck-run-comparison" aria-live="polite">
         <h3 id="blockcheck-run-comparison" class="text-subtitle-2 mb-2">{{ t('blockcheck.runComparison') }}</h3>
         <div class="blockcheck-results-controls">
@@ -343,9 +348,14 @@ const error = ref('')
 const editError = ref('')
 const notice = ref('')
 type AggregateRun = { id: string; groups: Map<string, HistoryEntry | undefined>; path: Report['path']; family: Family; depth: Depth;
-  startedAt: string; elapsed: number; phase: string; progress: SuiteProgress; omitted?: number }
+  startedAt: string; elapsed: number; phase: string; progress: SuiteProgress; omitted?: number; hidden?: number }
 const history = ref(new Map<string, HistoryEntry[]>())
 const historyWarning = ref('')
+const pagedHistory = ref(false)
+const groupBefore = ref<string>()
+const aggregateBefore = ref<string>()
+const extraGroupLoading = ref(false)
+const extraAggregateLoading = ref(false)
 const currentBatches = ref(new Map<string, Row[]>())
 const shownProgress = ref<SuiteEvent>()
 const aggregateRuns = ref<AggregateRun[]>([])
@@ -354,6 +364,7 @@ const runIndex = ref(0)
 const compareIndex = ref<number | null>(null)
 let runController: AbortController | undefined
 let loadController: AbortController | undefined
+let groupHistoryController: AbortController | undefined
 
 const pathKeys: Mode[] = ['PANEL', 'HOST_BASELINE', 'OUTBOUND']
 const familyKeys: Family[] = ['any', 'ipv4', 'ipv6']
@@ -530,7 +541,7 @@ function updateCatalog(value: Catalog, preferred = selected.value) {
 function newest<T>(items: T[], identity: (item: T) => string, startedAt: (item: T) => string): T[] {
   return [...new Map(items.map(item => [identity(item), item])).values()].sort((a, b) => Date.parse(startedAt(b)) - Date.parse(startedAt(a)))
 }
-function restoreHistory(runs: HistoryRun[]) {
+function restoreHistory(runs: HistoryRun[], scope?: 'group' | 'all') {
   const known = new Set(catalog.value?.groups.map(row => row.id))
   const reported = new Map<string, HistoryEntry[]>()
   const aggregates: AggregateRun[] = []
@@ -539,18 +550,49 @@ function restoreHistory(runs: HistoryRun[]) {
     for (const entry of run.groups) {
       const id = entry.report.groupId
       groups.set(id, entry)
-      if (!known.has(id)) continue
+      if (scope === 'all' || !known.has(id)) continue
       const entries = reported.get(id) ?? []
       entries.push(entry)
       reported.set(id, entries)
     }
     const elapsed = Date.parse(run.finishedAt) - Date.parse(run.startedAt)
-    if (run.all && elapsed >= 0) aggregates.push({ ...run, groups, elapsed })
+    if (scope !== 'group' && run.all && elapsed >= 0) aggregates.push({ ...run, groups, elapsed })
   }
   for (const [id, entries] of reported) {
-    history.value.set(id, newest([...entries, ...(history.value.get(id) ?? [])], item => item.report.job.jobId, item => item.report.startedAt).slice(0, 8))
+    history.value.set(id, newest([...entries, ...(history.value.get(id) ?? [])], item => item.report.job.jobId, item => item.report.startedAt))
   }
-  aggregateRuns.value = newest([...aggregates, ...aggregateRuns.value], item => item.id, item => item.startedAt).slice(0, 8)
+  if (scope !== 'group') aggregateRuns.value = newest([...aggregateRuns.value, ...aggregates], item => item.id, item => item.startedAt)
+}
+async function loadGroupPage(id: string, before?: string) {
+  if (!id || extraGroupLoading.value) return
+  const request = new AbortController()
+  groupHistoryController = request
+  extraGroupLoading.value = true
+  try {
+    const page = await loadHistory(request.signal, { groupId: id, before })
+    if (request.signal.aborted) return
+    restoreHistory(page.runs, 'group')
+    groupBefore.value = page.next
+  } catch {
+    if (!request.signal.aborted) historyWarning.value = 'blockcheck_history_unavailable'
+  } finally {
+    if (groupHistoryController === request) extraGroupLoading.value = false
+  }
+}
+async function loadOlderAggregates() {
+  const request = loadController
+  if (!request || extraAggregateLoading.value || !aggregateBefore.value) return
+  extraAggregateLoading.value = true
+  try {
+    const page = await loadHistory(request.signal, { view: 'all', before: aggregateBefore.value })
+    if (request.signal.aborted) return
+    restoreHistory(page.runs, 'all')
+    aggregateBefore.value = page.next
+  } catch {
+    if (!request.signal.aborted) historyWarning.value = 'blockcheck_history_unavailable'
+  } finally {
+    if (loadController === request) extraAggregateLoading.value = false
+  }
 }
 async function reload() {
   loadController?.abort()
@@ -566,8 +608,17 @@ async function reload() {
     updateCatalog(value.catalog)
     if (value.options.history) {
       try {
-        const runs = await loadHistory(request.signal)
-        if (!request.signal.aborted) { restoreHistory(runs); historyWarning.value = '' }
+        const page = await loadHistory(request.signal)
+        if (request.signal.aborted) return
+        restoreHistory(page.runs)
+        historyWarning.value = ''
+        if (page.paged) {
+          pagedHistory.value = true
+          const aggregates = await loadHistory(request.signal, { view: 'all' })
+          if (request.signal.aborted) return
+          restoreHistory(aggregates.runs)
+          aggregateBefore.value = aggregates.next
+        }
       } catch {
         if (!request.signal.aborted) historyWarning.value = 'blockcheck_history_unavailable'
       }
@@ -700,7 +751,8 @@ async function start(groupId?: string) {
         const report: Report = { ...event.report, results: partial.get(id) ?? [], findings: findings.get(id) }
         const entry = { report, targets: targets.get(id) ?? [] }
         results.set(id, entry)
-        history.value.set(id, [entry, ...(history.value.get(id) ?? [])].slice(0, 8))
+        const entries = [entry, ...(history.value.get(id) ?? [])]
+        history.value.set(id, expanded.value && id === selected.value ? entries : entries.slice(0, 8))
         currentBatches.value.delete(id)
         partial.delete(id)
         findings.delete(id)
@@ -715,7 +767,7 @@ async function start(groupId?: string) {
         const entry: AggregateRun = { id: terminal.job.operationId, groups: results, path, family: selectedFamily, depth: selectedDepth,
           elapsed: measured >= 0 ? measured : Math.round(performance.now() - started), phase: terminal.job.phase, progress: terminal.progress,
           startedAt: terminal.startedAt ?? startedAt }
-        aggregateRuns.value = [entry, ...aggregateRuns.value].slice(0, 8)
+        aggregateRuns.value = [entry, ...aggregateRuns.value]
         aggregateIndex.value = 0
       }
       if (terminal.job.phase === 'CANCELED') notice.value = t('blockcheck.canceled')
@@ -754,8 +806,18 @@ async function copyFacts() {
 watch(cells, rows => { enabled.value = new Set(rows.map(row => cellKey(row.target, row.probe))) })
 watch(runIndex, () => { compareIndex.value = null })
 watch(selected, () => { runIndex.value = 0; compareIndex.value = null })
+watch(() => pagedHistory.value && expanded.value ? selected.value : '', (id, previous) => {
+  groupHistoryController?.abort()
+  extraGroupLoading.value = false
+  groupBefore.value = undefined
+  const entries = history.value.get(previous)
+  if (entries) history.value.set(previous, entries.slice(0, 8))
+  if (id) { runIndex.value = 0; compareIndex.value = null; void loadGroupPage(id) }
+})
 watch(hostId, () => {
   runController?.abort(); runController = undefined; running.value = false; stopping.value = false
+  groupHistoryController?.abort(); pagedHistory.value = false
+  aggregateBefore.value = undefined; extraAggregateLoading.value = false
   catalog.value = undefined; options.value = undefined; history.value.clear(); shownProgress.value = undefined
   currentBatches.value.clear(); aggregateRuns.value = []; aggregateIndex.value = 0; historyWarning.value = ''
   expanded.value = false
@@ -767,7 +829,7 @@ watch(() => route.fullPath, () => {
   outbound.value = typeof query.outbound === 'string' ? query.outbound : ''
   resolver.value = typeof query.resolver === 'string' ? query.resolver : null
 }, { immediate: true })
-onBeforeUnmount(() => { runController?.abort(); loadController?.abort() })
+onBeforeUnmount(() => { runController?.abort(); loadController?.abort(); groupHistoryController?.abort() })
 </script>
 
 <style scoped>

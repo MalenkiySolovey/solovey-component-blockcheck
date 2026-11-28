@@ -15,7 +15,7 @@ func validateCatalogScope(scope durable.Scope) error {
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	if scope.OwnerID != ID || scope.SchemaVersion != "2" || scope.MigrationVersion != "2" {
+	if scope.OwnerID != ID || scope.SchemaVersion != "3" || scope.MigrationVersion != "3" {
 		return errors.New("blockcheck catalog durable scope mismatch")
 	}
 	return nil

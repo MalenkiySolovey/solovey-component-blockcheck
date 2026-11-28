@@ -6,11 +6,13 @@ import (
 	"time"
 )
 
-// History is derived evidence, kept independently of the editable catalog.
-// The per-run byte budget leaves room for two comparable snapshots.
+// MaxHistoryBytes is the compatibility limit for the old settings row.
 const MaxHistoryBytes = 512 << 10
 const MaxHistoryAge = 14 * 24 * time.Hour
-const maxHistoryRunBytes = MaxHistoryBytes/2 - 128
+
+// A group detail must fit in a bounded history response. This is not an
+// aggregate storage limit: one large group cannot displace other groups or runs.
+const MaxHistoryGroupBytes = 1 << 20
 
 var ErrInvalidHistory = errors.New("blockcheck_history_invalid")
 
@@ -26,6 +28,16 @@ type HistoryGroup struct {
 	Targets []HistoryTarget `json:"targets"`
 }
 
+// Redact also applies to legacy rows entering the new storage layout.
+func (g *HistoryGroup) Redact() {
+	for i, row := range g.Report.Results {
+		g.Report.Results[i] = historyResult(row)
+	}
+	if g.Report.Results == nil {
+		g.Report.Results = []Result{}
+	}
+}
+
 type HistoryRun struct {
 	ID         string         `json:"id"`
 	All        bool           `json:"all"`
@@ -39,11 +51,14 @@ type HistoryRun struct {
 	Progress   SuiteProgress  `json:"progress"`
 	Groups     []HistoryGroup `json:"groups"`
 	Omitted    int            `json:"omitted,omitempty"`
+	Hidden     int            `json:"hidden,omitempty"` // retained, but not included in this response
 }
 
 type History struct {
 	Version int          `json:"version"`
 	Runs    []HistoryRun `json:"runs"`
+	Next    string       `json:"next,omitempty"`
+	Paged   bool         `json:"paged,omitempty"`
 }
 
 func DecodeHistory(data []byte, now time.Time) (History, error) {
@@ -54,10 +69,6 @@ func DecodeHistory(data []byte, now time.Time) (History, error) {
 	if len(data) > MaxHistoryBytes || json.Unmarshal(data, &h) != nil || h.Version != 1 {
 		return History{}, ErrInvalidHistory
 	}
-	return h.retained(now), nil
-}
-
-func (h History) retained(now time.Time) History {
 	result := History{Version: 1, Runs: []HistoryRun{}}
 	oldest := now.Add(-MaxHistoryAge)
 	for _, run := range h.Runs {
@@ -65,37 +76,15 @@ func (h History) retained(now time.Time) History {
 			result.Runs = append(result.Runs, run)
 		}
 	}
-	return result
-}
-
-func (h History) WithRun(run HistoryRun, now time.Time) ([]byte, error) {
-	size, err := json.Marshal(run)
-	if err != nil || len(size) > maxHistoryRunBytes || run.ID == "" || run.StartedAt.IsZero() || run.FinishedAt.Before(run.StartedAt) {
-		return nil, ErrInvalidHistory
-	}
-	h = h.retained(now)
-	retained := History{Version: 1, Runs: []HistoryRun{run}}
-	remaining := MaxHistoryBytes - len(size) - 128
-	for _, previous := range h.Runs {
-		if previous.ID == run.ID {
-			continue
-		}
-		data, err := json.Marshal(previous)
-		if err != nil || len(data)+1 > remaining {
-			break
-		}
-		retained.Runs = append(retained.Runs, previous)
-		remaining -= len(data) + 1
-	}
-	return json.Marshal(retained)
+	return result, nil
 }
 
 // HistoryCapture observes the existing stream without scheduling work. It
-// retains whole group reports or marks their details omitted, never passing
-// off a truncated list of probes as a complete run.
+// hands off redacted groups one at a time to the durable owner. It never keeps
+// all probe detail for a Check All in memory or labels truncated groups complete.
 type HistoryCapture struct {
 	run      HistoryRun
-	catalog  Catalog
+	targets  map[string][]Target
 	bytes    int
 	group    string
 	rows     []Result
@@ -108,36 +97,33 @@ func NewHistoryCapture(catalog Catalog, request SuiteRequest) *HistoryCapture {
 	if run.Depth == "" {
 		run.Depth = Quick
 	}
+	targets := make(map[string][]Target, len(catalog.Groups))
 	for _, group := range catalog.Groups {
 		if request.All && !group.Disabled || !request.All && group.ID == request.GroupID {
 			run.GroupIDs = append(run.GroupIDs, group.ID)
+			targets[group.ID] = group.Targets
 		}
 	}
-	return &HistoryCapture{run: run, catalog: catalog}
+	return &HistoryCapture{run: run, targets: targets}
 }
 
-func (c *HistoryCapture) Observe(event SuiteEvent) *HistoryRun {
+// Observe returns metadata at finish or a completed (possibly canceled) group.
+func (c *HistoryCapture) Observe(event SuiteEvent) (*HistoryRun, *HistoryGroup) {
 	switch event.Kind {
 	case "started":
 		if event.StartedAt != nil {
 			c.run.StartedAt = *event.StartedAt
 		}
 		c.run.ID = event.Job.OperationID
-		meta, _ := json.Marshal(c.run)
-		c.bytes = len(meta) + 256 // terminal metadata and JSON delimiters
 	case "progress":
 		if event.Group == nil || c.oversize {
 			break
 		}
 		c.group = event.Group.ID
 		for _, row := range event.Rows {
-			row.AttemptedAddress, row.Proof = "", nil
-			// The report may still distinguish an observed egress from an
-			// requested tag. Link-layer details are not needed in history.
-			row.Socket = historySocket(row.Socket)
-			row.DNSSocket = historySocket(row.DNSSocket)
+			row = historyResult(row)
 			data, err := json.Marshal(row)
-			if err != nil || c.bytes+len(data)+1 > maxHistoryRunBytes {
+			if err != nil || c.bytes+len(data)+1 > MaxHistoryGroupBytes {
 				c.oversize = true
 				break
 			}
@@ -151,15 +137,22 @@ func (c *HistoryCapture) Observe(event SuiteEvent) *HistoryRun {
 		if event.Group == nil || event.Report == nil {
 			break
 		}
-		c.finishGroup(event)
+		return nil, c.finishGroup(event)
 	case "finished":
 		if event.FinishedAt != nil {
 			c.run.FinishedAt = *event.FinishedAt
 		}
 		c.run.Phase, c.run.Progress = event.Job.Phase, event.Progress
-		return &c.run
+		return &c.run, nil
 	}
-	return nil
+	return nil, nil
+}
+
+func historyResult(row Result) Result {
+	row.AttemptedAddress, row.Proof = "", nil
+	row.Socket = historySocket(row.Socket)
+	row.DNSSocket = historySocket(row.DNSSocket)
+	return row
 }
 
 func historySocket(socket *SocketEvidence) *SocketEvidence {
@@ -169,37 +162,31 @@ func historySocket(socket *SocketEvidence) *SocketEvidence {
 	return &SocketEvidence{Egress: socket.Egress, OutsidePanel: socket.OutsidePanel, RouteSelectionOnly: socket.RouteSelectionOnly}
 }
 
-func (c *HistoryCapture) finishGroup(event SuiteEvent) {
+func (c *HistoryCapture) finishGroup(event SuiteEvent) *HistoryGroup {
 	report := *event.Report
-	group, exists := c.catalog.Group(event.Group.ID)
+	targets, exists := c.targets[event.Group.ID]
 	item := HistoryGroup{Report: report}
+	defer c.resetGroup()
 	// Count the group's metadata separately; its result rows were counted on
 	// arrival. Discard the entire body if it cannot be retained as one unit.
 	if exists && !c.oversize && c.group == event.Group.ID {
-		for _, target := range group.Targets {
+		for _, target := range targets {
 			item.Targets = append(item.Targets, HistoryTarget{Name: target.Name, Host: target.Host, Role: target.Role, Port: target.Port})
 		}
 		item.Report.Findings = c.findings
 		meta, err := json.Marshal(item)
-		if err == nil && c.bytes+len(meta)+1 <= maxHistoryRunBytes {
+		if err == nil && c.bytes+len(meta)+1 <= MaxHistoryGroupBytes {
 			item.Report.Results = c.rows
 			if item.Report.Results == nil {
 				item.Report.Results = []Result{}
 			}
-			c.run.Groups = append(c.run.Groups, item)
-			c.bytes += len(meta) + 1
-			c.resetGroup()
-			return
+			return &item
 		}
 	}
 	c.run.Omitted++
-	for _, row := range c.rows {
-		data, _ := json.Marshal(row)
-		c.bytes -= len(data) + 1
-	}
-	c.resetGroup()
+	return nil
 }
 
 func (c *HistoryCapture) resetGroup() {
-	c.group, c.rows, c.findings, c.oversize = "", nil, nil, false
+	c.group, c.rows, c.findings, c.bytes, c.oversize = "", nil, nil, 0, false
 }
